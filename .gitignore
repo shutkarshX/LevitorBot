@@ -1,0 +1,41 @@
+﻿# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.bak
+
+# Telegram account sessions
+*.session
+*.session-*
+*.session-journal
+
+# Databases and backups
+*.db
+*.sqlite
+*.sqlite3
+backups/
+
+# Private channel inventories
+channel_archive.csv
+channel_inventory.csv
+data/*.txt
+
+# Python environment and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local editor/system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# SQLite sidecar files
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+
+# Generated dashboard backup
+channel_archive.pre_dashboard_backup.csv
