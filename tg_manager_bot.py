@@ -327,20 +327,31 @@ async def show(update, text, keyboard=None):
 # --------------------------------------------------
 
 def home_keyboard():
+    """Keep everyday library navigation on the home screen."""
     return [
-        [InlineKeyboardButton("Browse categories", callback_data="cats")],
         [InlineKeyboardButton(
             f"Newly Added ({get_newly_added_count()})",
             callback_data="newly:0"
         )],
-        [InlineKeyboardButton(
-            f"Uncategorised ({get_uncategorised_count()})",
-            callback_data="uncat:0"
-        )],
-        [InlineKeyboardButton("Sync main chat list", callback_data="sync")],
+        [
+            InlineKeyboardButton("Browse categories", callback_data="cats"),
+            InlineKeyboardButton(
+                f"Uncategorised ({get_uncategorised_count()})",
+                callback_data="uncat:0"
+            ),
+        ],
         [InlineKeyboardButton("Search channels", callback_data="search")],
+        [InlineKeyboardButton("Management", callback_data="management")],
+    ]
+
+
+def management_keyboard():
+    """Group administrative actions away from the everyday library menu."""
+    return [
         [InlineKeyboardButton("Create category", callback_data="newcat")],
+        [InlineKeyboardButton("Sync main chat list", callback_data="sync")],
         [InlineKeyboardButton("Download database backup", callback_data="backup")],
+        [InlineKeyboardButton("Back to main menu", callback_data="home")],
     ]
 
 
@@ -954,6 +965,10 @@ async def callbacks(update, context):
     elif data == "cats":
         context.user_data.clear()
         await categories(update, context)
+
+    elif data == "management":
+        context.user_data.clear()
+        await show(update, "Management\\n\\nChoose an action:", management_keyboard())
 
     elif data == "search":
         await begin_search(update, context)
