@@ -968,7 +968,7 @@ async def callbacks(update, context):
 
     elif data == "management":
         context.user_data.clear()
-        await show(update, "Management\\n\\nChoose an action:", management_keyboard())
+        await show(update, "Management\n\nChoose an action:", management_keyboard())
 
     elif data == "search":
         await begin_search(update, context)
