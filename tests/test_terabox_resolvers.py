@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ from terabox_resolvers import (
     _surl,
     _download_link,
     _share_context,
+    resolve_terabox_api,
     resolve_with_fallback,
     resolver_settings_from_env,
 )
@@ -30,7 +32,6 @@ class TeraBoxResolverUnitTests(unittest.TestCase):
     def test_extracts_js_token(self):
         self.assertEqual(_js_token('var x = "fn%28%22ABCDEF123%22%29";'), "ABCDEF123")
 
-
     def test_share_context_retries_dragdrop_with_fresh_token(self):
         html = b'var token = "fn%28%22ABCDEF123%22%29";'
         dragdrop = b'{"errno":460030,"errmsg":"dragdrop"}'
@@ -45,14 +46,14 @@ class TeraBoxResolverUnitTests(unittest.TestCase):
         self.assertEqual(context["data"]["list"][0]["server_filename"], "video.mp4")
         self.assertEqual(mocked.call_count, 4)
 
-    def test_dragdrop_failure_explains_required_configuration(self):
+    def test_dragdrop_failure_explains_external_api_option(self):
         html = b'var token = "fn%28%22ABCDEF123%22%29";'
         dragdrop = b'{"errno":460030,"errmsg":"dragdrop","request_id":"req-test"}'
         with patch("terabox_resolvers._request",
                    side_effect=[html, dragdrop] * 3), \
              patch("terabox_resolvers.time.sleep"):
             with self.assertRaisesRegex(
-                ResolverError, "TERABOX_NDUS_COOKIE"
+                ResolverError, "TERABOX_API_KEY"
             ) as caught:
                 _share_context(
                     "https://www.terabox.app/sharing/link?surl=Q8bWTGMxeJteJS__r8YTpA"
@@ -97,6 +98,49 @@ class TeraBoxResolverUnitTests(unittest.TestCase):
             self.assertIsNone(_download_link(
                 "https://dm.1024tera.com", context, {"fs_id": 56}
             ))
+
+    def test_external_api_parses_watch_and_download_links(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, _limit):
+                return json.dumps({
+                    "errno": 0,
+                    "list": [{
+                        "server_filename": "sample.mp4",
+                        "size": 1234,
+                        "dlink": "https://cdn.example/download",
+                        "stream_url": "https://cdn.example/watch.m3u8",
+                    }],
+                }).encode()
+
+        with patch("terabox_resolvers.urlopen", return_value=FakeResponse()) as mocked:
+            result = resolve_terabox_api(
+                "https://terabox.com/s/AbCdEf123", "test-api-key"
+            )
+        self.assertEqual(result.filename, "sample.mp4")
+        self.assertEqual(result.size, 1234)
+        self.assertEqual(result.watch_url, "https://cdn.example/watch.m3u8")
+        self.assertEqual(result.download_url, "https://cdn.example/download")
+        request = mocked.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api-v2.teraboxdl.site/api/terabox/extract")
+        self.assertEqual(request.get_header("X-api-key"), "test-api-key")
+        self.assertEqual(json.loads(request.data)["url"], "https://terabox.com/s/AbCdEf123")
+
+    def test_external_api_rejects_non_https_result_links(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, _limit):
+                return b'{"errno":0,"list":[{"dlink":"http://unsafe.example/file"}]}'
+
+        with patch("terabox_resolvers.urlopen", return_value=FakeResponse()):
+            with self.assertRaisesRegex(ResolverError, "usable HTTPS links"):
+                resolve_terabox_api("https://terabox.com/s/AbCdEf123", "test-api-key")
 
     def test_fallback_uses_next_enabled_method(self):
         expected = ResolvedLinks("video.mp4", 123, "https://watch.example/v", None, "external")
