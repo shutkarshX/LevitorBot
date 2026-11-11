@@ -41,3 +41,4 @@ def setup_logging():
         level=logging.INFO,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("telethon").setLevel(logging.WARNING)

@@ -16,11 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 def create_telethon_client() -> TelegramClient:
-    """Create a Telethon user client instance."""
+    """
+    Create a Telethon user client instance in lightweight read-only mode.
+    Disables incoming account updates to prevent memory leaks and console log spam.
+    """
     return TelegramClient(
         SESSION_PATH,
         int(API_ID),
         API_HASH,
+        receive_updates=False,
     )
 
 
