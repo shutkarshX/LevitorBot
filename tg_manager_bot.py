@@ -183,6 +183,7 @@ async def sync_main_dialogs(application):
 
     added = 0
     updated = 0
+    removed = 0
     with connect_db() as db:
         for item in discovered:
             exists = db.execute(
@@ -219,6 +220,22 @@ async def sync_main_dialogs(application):
                 ))
                 added += 1
 
+        # Only reconcile after the full Telegram iterator completes.
+        # Limit deletion to records previously tracked in the main list.
+        # Empty results fail closed to avoid wiping the directory on anomalies.
+        if discovered:
+            seen_ids = [item["id"] for item in discovered]
+            placeholders = ",".join("?" for _ in seen_ids)
+            cursor = db.execute(
+                f"""
+                DELETE FROM channels
+                WHERE membership_status = 'Present in main chat list'
+                  AND id NOT IN ({placeholders})
+                """,
+                seen_ids,
+            )
+            removed = cursor.rowcount
+
         db.execute("""
             INSERT INTO app_metadata(key, value)
             VALUES ('last_sync_at', ?)
@@ -234,6 +251,7 @@ async def sync_main_dialogs(application):
         "seen": len(discovered),
         "added": added,
         "updated": updated,
+        "removed": removed,
         "newly_added": get_newly_added_count(),
     }
 
@@ -365,6 +383,7 @@ def management_keyboard():
     """Group administrative actions away from the everyday library menu."""
     return [
         [InlineKeyboardButton("➕ Create category", callback_data="newcat")],
+        [InlineKeyboardButton("✏️ Edit categories", callback_data="managecats")],
         [InlineKeyboardButton("🔄 Sync chat list", callback_data="sync")],
         [InlineKeyboardButton("💾 Download backup", callback_data="backup")],
         [InlineKeyboardButton("🏠 Back to home", callback_data="home")],
@@ -383,6 +402,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         home_text(),
         home_keyboard(),
     )
+
+
+async def manage_categories(update, context):
+    rows = get_categories()
+    keyboard = []
+    for row in rows:
+        count = get_channel_count(row["category_id"])
+        keyboard.append([InlineKeyboardButton(
+            f"{row['name']} · {count}",
+            callback_data=f"managecat:{row['category_id']}",
+        )])
+    keyboard.append([InlineKeyboardButton("⬅️ Management", callback_data="management")])
+    await show(update, section_text("Edit categories", "Choose a category to rename or delete."), keyboard)
+
+
+async def category_management_page(update, context, category_id):
+    with connect_db() as db:
+        category = db.execute(
+            "SELECT * FROM categories WHERE category_id = ?", (category_id,)
+        ).fetchone()
+    if not category:
+        await manage_categories(update, context)
+        return
+    count = get_channel_count(category_id)
+    keyboard = [
+        [InlineKeyboardButton("✏️ Rename", callback_data=f"rename:{category_id}")],
+        [InlineKeyboardButton("🗑 Delete", callback_data=f"delete:{category_id}")],
+        [InlineKeyboardButton("⬅️ Edit categories", callback_data="managecats")],
+    ]
+    await show(update, f"Edit category\n\n{category['name']}\n{count} channel assignment(s)", keyboard)
 
 
 async def categories(update, context):
@@ -415,7 +464,7 @@ async def system_category_page(update, context, kind, page):
 
     for channel in channels:
         keyboard.append([InlineKeyboardButton(
-            channel["title"][:55],
+            f"▣ Channel · {channel['title'][:43]}",
             callback_data=f"ch:{channel['id']}:0:{page}"
         )])
 
@@ -460,6 +509,7 @@ async def run_sync(update, context):
         f"👀 Checked: {result['seen']}\n"
         f"🆕 Newly found: {result['added']}\n"
         f"🔁 Refreshed: {result['updated']}\n"
+        f"🗑 Removed from directory: {result['removed']}\n"
         f"📥 Waiting for review: {result['newly_added']}",
         reply_markup=InlineKeyboardMarkup(home_keyboard())
     )
@@ -546,7 +596,7 @@ async def category_page(update, context, category_id, page):
     for channel in channels:
         keyboard.append([
             InlineKeyboardButton(
-                channel["title"][:55],
+                f"▣ Channel · {channel['title'][:43]}",
                 callback_data=f"ch:{channel['id']}:{category_id}:{page}",
             )
         ])
@@ -572,10 +622,8 @@ async def category_page(update, context, category_id, page):
     if navigation:
         keyboard.append(navigation)
 
-    keyboard.extend([
-        [InlineKeyboardButton("✏️ Rename category", callback_data=f"rename:{category_id}")],
-        [InlineKeyboardButton("🗑 Delete category", callback_data=f"delete:{category_id}")],
-        [InlineKeyboardButton("⬅️ All categories", callback_data="cats")],
+    keyboard.append([
+        InlineKeyboardButton("⬅️ All categories", callback_data="cats")
     ])
 
     text = (
@@ -795,7 +843,7 @@ async def show_search_results(update, context, term):
     for row in results:
         keyboard.append([
             InlineKeyboardButton(
-                row["title"][:55],
+                f"▣ Channel · {row['title'][:43]}",
                 callback_data=f"ch:{row['id']}:0:0",
             )
         ])
@@ -834,7 +882,7 @@ async def begin_rename(update, context, category_id):
     await show(
         update,
         "✏️ Rename this shelf\n\nSend its new name.",
-        [[InlineKeyboardButton("↩️ Cancel", callback_data=f"cat:{category_id}:0")]],
+        [[InlineKeyboardButton("↩️ Cancel", callback_data=f"managecat:{category_id}")]],
     )
 
 
@@ -858,7 +906,7 @@ async def confirm_delete(update, context, category_id):
         )],
         [InlineKeyboardButton(
             "Cancel",
-            callback_data=f"cat:{category_id}:0",
+            callback_data=f"managecat:{category_id}",
         )],
     ]
 
@@ -879,7 +927,7 @@ async def delete_category(update, context, category_id):
             (category_id,)
         )
 
-    await categories(update, context)
+    await manage_categories(update, context)
 
 
 # --------------------------------------------------
@@ -942,7 +990,7 @@ async def receive_text(update, context):
                 (value, category_id)
             )
 
-        await category_page(update, context, category_id, 0)
+        await category_management_page(update, context, category_id)
 
 
 # --------------------------------------------------
@@ -987,7 +1035,14 @@ async def callbacks(update, context):
     elif data == "newcat":
         await begin_new_category(update, context)
 
-    elif data.startswith("cat:"):
+    elif data == "managecats":
+        context.user_data.clear()
+        await manage_categories(update, context)
+
+    elif data.startswith("managecat:"):
+        await category_management_page(update, context, int(data.split(":")[1]))
+
+    elif data.startswith("cat:")
         _, cid, page = data.split(":")
         context.user_data.clear()
         await category_page(update, context, int(cid), int(page))
