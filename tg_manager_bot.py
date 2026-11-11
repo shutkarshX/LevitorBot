@@ -49,6 +49,22 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 PAGE_SIZE = 8
+BRAND_NAME = "Snapit"
+
+
+def home_text():
+    return (
+        f"✨ {BRAND_NAME}\\n"
+        "Your Telegram space, sorted with a little sparkle.\\n\\n"
+        f"📚 {get_total_channel_count()} destinations  ·  "
+        f"🗂 {len(get_categories())} categories  ·  "
+        f"🆕 {get_newly_added_count()} to review"
+    )
+
+
+def section_text(title, subtitle=None):
+    return f"✦ {title} ✦" + (f"\\n\\n{subtitle}" if subtitle else "")
+
 
 # Main Telegram chat-list sync only. Archived dialogs (folder 1), DMs,
 # and bot conversations are deliberately excluded.
@@ -330,28 +346,28 @@ def home_keyboard():
     """Keep everyday library navigation on the home screen."""
     return [
         [InlineKeyboardButton(
-            f"Newly Added ({get_newly_added_count()})",
+            f"🆕 Newly Added · {get_newly_added_count()}",
             callback_data="newly:0"
         )],
         [
-            InlineKeyboardButton("Browse categories", callback_data="cats"),
+            InlineKeyboardButton("🗂 Browse categories", callback_data="cats"),
             InlineKeyboardButton(
-                f"Uncategorised ({get_uncategorised_count()})",
+                f"📭 Uncategorised · {get_uncategorised_count()}",
                 callback_data="uncat:0"
             ),
         ],
-        [InlineKeyboardButton("Search channels", callback_data="search")],
-        [InlineKeyboardButton("Management", callback_data="management")],
+        [InlineKeyboardButton("🔎 Search channels", callback_data="search")],
+        [InlineKeyboardButton("⚙️ Management", callback_data="management")],
     ]
 
 
 def management_keyboard():
     """Group administrative actions away from the everyday library menu."""
     return [
-        [InlineKeyboardButton("Create category", callback_data="newcat")],
-        [InlineKeyboardButton("Sync main chat list", callback_data="sync")],
-        [InlineKeyboardButton("Download database backup", callback_data="backup")],
-        [InlineKeyboardButton("Back to main menu", callback_data="home")],
+        [InlineKeyboardButton("➕ Create category", callback_data="newcat")],
+        [InlineKeyboardButton("🔄 Sync chat list", callback_data="sync")],
+        [InlineKeyboardButton("💾 Download backup", callback_data="backup")],
+        [InlineKeyboardButton("🏠 Back to home", callback_data="home")],
     ]
 
 
@@ -364,10 +380,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await show(
         update,
-        f"TG Manager\n\nYour Telegram channel library.\n\n"
-        f"{get_total_channel_count()} destinations · "
-        f"{len(get_categories())} categories · "
-        f"{get_newly_added_count()} newly added",
+        home_text(),
         home_keyboard(),
     )
 
@@ -386,17 +399,18 @@ async def categories(update, context):
         ])
 
     keyboard.append([
-        InlineKeyboardButton("Search", callback_data="search"),
-        InlineKeyboardButton("Home", callback_data="home"),
+        InlineKeyboardButton("🔎 Search", callback_data="search"),
+        InlineKeyboardButton("🏠 Home", callback_data="home"),
     ])
 
-    await show(update, "Your categories\n\nSelect a category:", keyboard)
+    await show(update, section_text("Your categories", "Pick a shelf to explore ↓"), keyboard)
 
 
 async def system_category_page(update, context, kind, page):
     total = get_system_channel_count(kind)
     channels = get_system_channels(kind, page)
     title = "Newly Added" if kind == "newly" else "Uncategorised"
+    icon = "🆕" if kind == "newly" else "📭"
     keyboard = []
 
     for channel in channels:
@@ -417,10 +431,10 @@ async def system_category_page(update, context, kind, page):
     if navigation:
         keyboard.append(navigation)
 
-    keyboard.append([InlineKeyboardButton("Home", callback_data="home")])
+    keyboard.append([InlineKeyboardButton("🏠 Home", callback_data="home")])
     message = (
-        f"{title}\n{total} destination(s)\n\n"
-        + ("Select a destination:" if channels else "Nothing here right now.")
+        f"{icon} {title}  ·  {total} destination(s)\n\n"
+        + ("Tap a destination to peek inside ↓" if channels else "All clear here for now ✨")
     )
     await show(update, message, keyboard)
 
@@ -629,7 +643,7 @@ async def channel_page(update, context, channel_id, category_id=0, page=0):
         ])
 
     keyboard.append([
-        InlineKeyboardButton("Home", callback_data="home")
+        InlineKeyboardButton("🏠 Home", callback_data="home")
     ])
 
     await show(update, text, keyboard)
@@ -770,7 +784,7 @@ async def begin_search(update, context):
     await show(
         update,
         "Search channels\n\nSend a channel title or username.",
-        [[InlineKeyboardButton("Home", callback_data="home")]],
+        [[InlineKeyboardButton("🏠 Home", callback_data="home")]],
     )
 
 
@@ -788,7 +802,7 @@ async def show_search_results(update, context, term):
 
     keyboard.append([
         InlineKeyboardButton("Search again", callback_data="search"),
-        InlineKeyboardButton("Home", callback_data="home"),
+        InlineKeyboardButton("🏠 Home", callback_data="home"),
     ])
 
     await show(
@@ -968,7 +982,7 @@ async def callbacks(update, context):
 
     elif data == "management":
         context.user_data.clear()
-        await show(update, "Management\n\nChoose an action:", management_keyboard())
+        await show(update, "⚙️ Your toolkit\n\nPick an action:", management_keyboard())
 
     elif data == "search":
         await begin_search(update, context)
@@ -1046,7 +1060,7 @@ async def post_init(application):
     application.bot_data["tg_client"] = client
     application.bot_data["admin_id"] = me.id
 
-    logging.info("TG Manager administrator identity loaded.")
+    logging.info("Snapit administrator identity loaded.")
     logging.info("Bot startup initialization complete.")
 
 
@@ -1073,7 +1087,7 @@ def main():
         MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text)
     )
 
-    logging.info("Starting TG Manager bot polling.")
+    logging.info("Starting Snapit bot polling.")
     application.run_polling()
 
 
