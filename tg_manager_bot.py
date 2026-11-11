@@ -18,6 +18,7 @@ from telegram_client import create_telethon_client
 from handlers import (
     start,
     terabox_help_command,
+    cookie_command,
     callbacks,
     receive_text,
 )
@@ -30,7 +31,8 @@ async def post_init(application: Application):
     await application.bot.set_my_commands([
         BotCommand("start", "Open Snapit"),
         BotCommand("menu", "Open the main menu"),
-        BotCommand("terabox", "TeraBox link info and setup"),
+        BotCommand("terabox", "TeraBox player info and status"),
+        BotCommand("cookie", "Set or check TeraBox cookie"),
     ])
 
     db.ensure_schema()
@@ -72,6 +74,8 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
     application.add_handler(CommandHandler("terabox", terabox_help_command))
+    application.add_handler(CommandHandler("cookie", cookie_command))
+    application.add_handler(CommandHandler("setcookie", cookie_command))
     application.add_handler(CallbackQueryHandler(callbacks))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 

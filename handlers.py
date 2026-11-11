@@ -5,6 +5,7 @@ import asyncio
 import logging
 import sqlite3
 import tempfile
+import time
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +16,13 @@ from telegram.ext import ContextTypes
 from config import DB_PATH, PAGE_SIZE
 import database as db
 from telegram_client import sync_main_dialogs, resolve_channel_link
-from terabox import extract_terabox_url, resolve_terabox_link
+from terabox import (
+    extract_terabox_url,
+    resolve_terabox_link,
+    download_terabox_file,
+    get_terabox_cookie,
+    TeraBoxResult,
+)
 from ui import (
     home_text,
     section_text,
@@ -45,16 +52,71 @@ async def terabox_help_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if not is_admin(update, context):
         await deny(update)
         return
+    cookie = get_terabox_cookie()
+    cookie_status = "✅ Configured (Active)" if cookie else "⚠️ Not configured"
     text = (
-        "🎬 TeraBox Instant Watch & Download\n\n"
-        "Send any TeraBox link directly to the bot to stream or download without ads!\n\n"
-        "⚙️ Optional Setup for Direct In-Chat Links:\n"
-        "• TeraBoxDL API: Add TERABOX_API_KEY=... in .env\n"
-        "• Custom Gateway: Add TERABOX_API_URL=... in .env\n"
-        "• Personal Cookie: Add TERABOX_COOKIE=... in .env\n\n"
-        "Without an API key or cookie, the bot still provides ad-free streaming via iTeraPlay!"
+        "🎬 <b>TeraBox In-Chat Video Player & Downloader</b>\n\n"
+        "Send any TeraBox share link directly to this chat to watch or download!\n\n"
+        f"🔑 <b>TeraBox Cookie Status:</b> {cookie_status}\n\n"
+        "⚙️ <b>How to enable direct in-Telegram video playback:</b>\n"
+        "1. Open TeraBox in browser (PC or mobile) and copy your <code>ndus</code> cookie.\n"
+        "2. Send <code>/cookie &lt;your_ndus_token&gt;</code> in this chat.\n\n"
+        "💡 <b>Key advantages of the Cookie method:</b>\n"
+        "• <b>No PC needed</b>: Your PC does NOT need to stay on. The server runs 24/7.\n"
+        "• <b>No monthly limit</b>: Direct connection has NO 1,000 requests cap.\n"
+        "• <b>Long-lasting</b>: The cookie remains active for months."
     )
-    await update.message.reply_text(text)
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update, context):
+        await deny(update)
+        return
+
+    args = context.args
+    if not args:
+        current_cookie = get_terabox_cookie()
+        if current_cookie:
+            masked = current_cookie[:6] + "..." + current_cookie[-6:] if len(current_cookie) > 12 else "active"
+            msg = (
+                f"🔑 <b>TeraBox Cookie Status: Active</b>\n"
+                f"Current token: <code>{masked}</code>\n\n"
+                "To update your cookie, send:\n"
+                "<code>/cookie &lt;your_new_ndus_value&gt;</code>\n\n"
+                "💡 <i>Reminder: Your PC does NOT need to stay on. Once saved, the server uses this token 24/7.</i>"
+            )
+        else:
+            msg = (
+                "🔑 <b>TeraBox Cookie Setup</b>\n\n"
+                "No TeraBox cookie is currently configured.\n\n"
+                "<b>How to get your cookie:</b>\n"
+                "1. Open TeraBox in your browser (PC or phone) and log in.\n"
+                "2. Copy the <code>ndus</code> cookie value.\n"
+                "3. Send it here: <code>/cookie &lt;ndus_token&gt;</code>\n\n"
+                "✅ Once configured, you can watch TeraBox videos directly inside Telegram without any redirects!"
+            )
+        await update.message.reply_text(msg, parse_mode="HTML")
+        return
+
+    token = " ".join(args).strip().strip('"').strip("'")
+    if token.startswith("ndus="):
+        token = token[5:].strip()
+
+    if len(token) < 10:
+        await update.message.reply_text("⚠️ The provided token seems too short. Make sure you copied the full ndus cookie.")
+        return
+
+    db.set_setting("terabox_cookie", token)
+    logger.info("TeraBox cookie successfully saved by admin.")
+    await update.message.reply_text(
+        "✅ <b>TeraBox Cookie saved successfully!</b>\n\n"
+        "🎬 Direct in-chat Telegram video playback is now active.\n"
+        "Send any TeraBox link to try it out!\n\n"
+        "💡 <i>Your PC does NOT need to stay on; this token works 24/7 on your hosting server.</i>",
+        parse_mode="HTML",
+    )
+
 
 
 # --------------------------------------------------
@@ -408,6 +470,72 @@ async def handle_terabox_message(update: Update, context: ContextTypes.DEFAULT_T
             success=False,
         )
 
+    # 1. Direct download & in-chat video streaming available
+    if result.download_url:
+        try:
+            await status_msg.edit_text(f"📥 Downloading '{result.title}' ({result.size_formatted}) for in-chat playback…")
+
+            temp_dir = Path("data") / "temp_media"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            safe_name = "".join(c for c in result.title if c.isalnum() or c in "._- ")[:60].strip() or "video.mp4"
+            if not safe_name.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi")):
+                safe_name += ".mp4"
+
+            tmp_path = temp_dir / f"{int(time.time())}_{safe_name}"
+
+            cookie = result.cookie_used or get_terabox_cookie()
+            await asyncio.to_thread(download_terabox_file, result.download_url, tmp_path, cookie)
+
+            file_size = tmp_path.stat().st_size if tmp_path.exists() else 0
+            if file_size > 0:
+                # Up to 50MB: Standard Telegram Bot API
+                if file_size <= 50 * 1024 * 1024:
+                    await status_msg.edit_text(f"🚀 Uploading '{result.title}' directly to Telegram…")
+                    with open(tmp_path, "rb") as video_file:
+                        await update.message.reply_video(
+                            video=video_file,
+                            caption=f"🎬 <b>{result.title}</b>\n📦 Size: {result.size_formatted}",
+                            parse_mode="HTML",
+                            supports_streaming=True,
+                            filename=safe_name,
+                        )
+                # 50MB up to 2GB: Telethon MTProto User Client
+                else:
+                    tg_client = context.bot_data.get("tg_client")
+                    if tg_client:
+                        await status_msg.edit_text(f"🚀 Uploading large video ({result.size_formatted}) via Telethon…")
+                        chat_id = update.effective_chat.id
+                        await tg_client.send_file(
+                            chat_id,
+                            str(tmp_path),
+                            caption=f"🎬 **{result.title}**\n📦 Size: {result.size_formatted}",
+                            supports_streaming=True,
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"🎬 <b>{result.title}</b> ({result.size_formatted})\n\n"
+                            f"File is larger than 50MB and Telethon is unavailable.\n"
+                            f"Download directly: <a href='{result.download_url}'>Click here to download</a>",
+                            parse_mode="HTML",
+                        )
+
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+                try:
+                    await status_msg.delete()
+                except Exception:
+                    pass
+                return
+
+        except Exception as e:
+            logger.exception("Error while downloading/sending video: %s", e)
+            await status_msg.edit_text(f"⚠️ Could not stream video directly ({e}). Providing direct web options below:")
+
+    # 2. If direct video couldn't be downloaded (e.g. need cookie / verification):
     keyboard = []
     action_row = []
     if result.watch_url:
@@ -420,19 +548,30 @@ async def handle_terabox_message(update: Update, context: ContextTypes.DEFAULT_T
 
     keyboard.append([InlineKeyboardButton("🌐 Open in iTeraPlay", url=result.iteraplay_url)])
 
-    if result.success and (result.watch_url or result.download_url):
+    cookie = get_terabox_cookie()
+    if not cookie:
         caption = (
-            "🎬 TeraBox Media Found!\n\n"
-            f"📁 Title: {result.title}\n"
-            f"📦 Size: {result.size_formatted}\n\n"
-            "Choose an option below to stream or download ad-free:"
+            "🎬 <b>TeraBox Media Detected</b>\n\n"
+            f"📁 <b>Title:</b> {result.title}\n"
+            f"📦 <b>Size:</b> {result.size_formatted}\n"
+            f"🔗 <b>Link:</b> {share_url}\n\n"
+            "⚠️ <b>Direct In-Chat Playback Setup:</b>\n"
+            "To watch this video directly inside Telegram without any website redirect, "
+            "add your TeraBox <code>ndus</code> cookie once:\n\n"
+            "👉 Send: <code>/cookie &lt;your_ndus_value&gt;</code>\n\n"
+            "💡 <b>Good to know:</b>\n"
+            "• You only do this <b>once</b> (lasts for months)\n"
+            "• Your PC does <b>NOT</b> need to stay on\n"
+            "• There is <b>NO 1,000 monthly limit</b> (unlimited)\n\n"
+            "<i>In the meantime, you can watch ad-free on iTeraPlay below:</i>"
         )
     else:
         caption = (
-            "🎬 TeraBox Link Detected\n\n"
-            f"📁 Title: {result.title}\n"
-            f"🔗 Link: {share_url}\n\n"
-            "💡 TeraBox is currently requesting verification for direct anonymous downloads. "
+            "🎬 <b>TeraBox Media Detected</b>\n\n"
+            f"📁 <b>Title:</b> {result.title}\n"
+            f"📦 <b>Size:</b> {result.size_formatted}\n"
+            f"🔗 <b>Link:</b> {share_url}\n\n"
+            "💡 TeraBox is currently requesting verification for this specific link. "
             "You can watch and download ad-free directly on iTeraPlay below:"
         )
 
@@ -440,6 +579,7 @@ async def handle_terabox_message(update: Update, context: ContextTypes.DEFAULT_T
         caption,
         reply_markup=InlineKeyboardMarkup(keyboard),
         disable_web_page_preview=True,
+        parse_mode="HTML",
     )
 
 

@@ -317,3 +317,22 @@ def save_sync_results(discovered: List[Dict[str, Any]], now: str) -> Dict[str, i
         "removed": removed,
         "newly_added": get_newly_added_count(),
     }
+
+
+def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    """Retrieve an arbitrary app setting or metadata value."""
+    with connect_db() as db:
+        cursor = db.execute("SELECT value FROM app_metadata WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    """Store or update an app setting or metadata value."""
+    with connect_db() as db:
+        db.execute("""
+            INSERT INTO app_metadata(key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """, (key, value))
+

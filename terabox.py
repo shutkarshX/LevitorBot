@@ -11,9 +11,12 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Callable
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
+
+from database import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +43,25 @@ class TeraBoxResult:
     size_formatted: str
     watch_url: Optional[str] = None
     download_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
     iteraplay_url: str = "https://iteraplay.com"
     success: bool = True
     error_message: Optional[str] = None
+    cookie_used: Optional[str] = None
+
+
+def get_terabox_cookie() -> Optional[str]:
+    """Retrieve the TeraBox ndus cookie from database or environment."""
+    val = get_setting("terabox_cookie")
+    if not val:
+        val = os.getenv("TERABOX_COOKIE") or os.getenv("TERABOX_NDUS_COOKIE")
+    if not val:
+        return None
+    val = val.strip().strip('"').strip("'")
+    if val.startswith("ndus="):
+        val = val[5:].strip()
+    return val if val else None
+
 
 
 def extract_terabox_url(text: str) -> Optional[str]:
@@ -155,74 +174,141 @@ def _resolve_via_external_api(share_url: str, api_url: str, api_key: Optional[st
     return None
 
 
-def _resolve_via_cookie(share_url: str, cookie: str) -> Optional[TeraBoxResult]:
-    """Attempt direct extraction using an ndus session cookie."""
+def _resolve_via_cookie(share_url: str, cookie: Optional[str] = None) -> Optional[TeraBoxResult]:
+    """Attempt extraction using web endpoints and optional ndus session cookie."""
     surl = extract_surl(share_url)
-    base = "https://dm.1024tera.com"
-    headers = {
-        "Referer": f"{base}/wap/share/filelist?surl={surl}",
-        "Cookie": f"ndus={cookie.strip()}",
-    }
+    clean_surl = surl.lstrip("1")
 
-    html = _http_request(
-        f"{base}/wap/share/filelist?surl={surl}&clearCache=1&t={int(time.time())}",
-        headers=headers,
-    ).decode("utf-8", errors="replace")
+    base_mirrors = [
+        "https://dm.1024tera.com",
+        "https://www.terabox.app",
+        "https://www.terabox.com",
+    ]
 
-    token_match = re.search(r'fn%28%22([A-Fa-f0-9]+)%22%29', html)
-    token = token_match.group(1) if token_match else None
+    for base in base_mirrors:
+        headers = {
+            "Referer": f"{base}/wap/share/filelist?surl={clean_surl}",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
+        }
+        if cookie:
+            headers["Cookie"] = f"ndus={cookie.strip()}"
 
-    params = {
-        "app_id": "250528",
-        "shorturl": f"1{surl}",
-        "root": "1",
-        "web": "1",
-        "channel": "dubox",
-        "clienttype": "0",
-        "t": str(int(time.time())),
-    }
-    if token:
-        params["jsToken"] = token
+        try:
+            html = _http_request(
+                f"{base}/wap/share/filelist?surl={clean_surl}&clearCache=1&t={int(time.time())}",
+                headers=headers,
+                timeout=5,
+            ).decode("utf-8", errors="replace")
+        except Exception:
+            continue
 
-    endpoint = f"{base}/api/shorturlinfo?{urlencode(params)}"
-    data = json.loads(_http_request(endpoint, headers=headers).decode("utf-8"))
+        token_match = re.search(r'fn%28%22([A-Fa-f0-9]+)%22%29', html)
+        token = token_match.group(1) if token_match else None
 
-    if data.get("errno") == 0 and data.get("list"):
-        item = data["list"][0]
-        filename = str(item.get("server_filename") or "TeraBox File")
-        size = int(item.get("size") or 0)
-        dlink = item.get("dlink")
+        params = {
+            "app_id": "250528",
+            "shorturl": f"1{clean_surl}",
+            "root": "1",
+            "web": "1",
+            "channel": "dubox",
+            "clienttype": "0",
+            "t": str(int(time.time())),
+        }
+        if token:
+            params["jsToken"] = token
 
-        if not dlink and "fs_id" in item:
-            try:
-                dl_payload = urlencode({
-                    "shareid": data.get("shareid"),
-                    "uk": data.get("uk"),
-                    "sign": data.get("sign"),
-                    "timestamp": data.get("timestamp"),
-                    "primaryid": data.get("shareid"),
-                    "fid_list": json.dumps([item["fs_id"]]),
-                }).encode("utf-8")
-                dl_data = json.loads(_http_request(
-                    f"{base}/share/download?app_id=250528&channel=dubox&clienttype=0&web=1",
-                    headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
-                    data=dl_payload,
-                ).decode("utf-8"))
-                if dl_data.get("errno") == 0 and dl_data.get("dlink"):
-                    dlink = dl_data["dlink"]
-            except Exception as e:
-                logger.debug("Failed fetching direct dlink: %s", e)
+        try:
+            endpoint = f"{base}/api/shorturlinfo?{urlencode(params)}"
+            data = json.loads(_http_request(endpoint, headers=headers, timeout=6).decode("utf-8"))
+        except Exception:
+            continue
 
-        return TeraBoxResult(
-            url=share_url,
-            title=filename,
-            size=size,
-            size_formatted=format_bytes(size),
-            watch_url=dlink,
-            download_url=dlink,
-            success=True,
-        )
+        if data.get("errno") == 0 and data.get("list"):
+            item = data["list"][0]
+            filename = str(item.get("server_filename") or "TeraBox Media File")
+            size = int(item.get("size") or 0)
+            dlink = item.get("dlink")
+            thumbs = item.get("thumbs") or {}
+            thumb_url = thumbs.get("url3") or thumbs.get("icon")
+
+            if (not dlink or dlink == "") and "fs_id" in item and cookie:
+                try:
+                    dl_payload = urlencode({
+                        "shareid": data.get("shareid"),
+                        "uk": data.get("uk"),
+                        "sign": data.get("sign"),
+                        "timestamp": data.get("timestamp"),
+                        "primaryid": data.get("shareid"),
+                        "fid_list": json.dumps([str(item["fs_id"])]),
+                    }).encode("utf-8")
+                    dl_data = json.loads(_http_request(
+                        f"{base}/share/download?app_id=250528&channel=dubox&clienttype=0&web=1",
+                        headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
+                        data=dl_payload,
+                        timeout=15,
+                    ).decode("utf-8"))
+                    if dl_data.get("errno") == 0 and dl_data.get("dlink"):
+                        dlink = dl_data["dlink"]
+                except Exception as e:
+                    logger.debug("Failed fetching direct dlink from %s: %s", base, e)
+
+            return TeraBoxResult(
+                url=share_url,
+                title=filename,
+                size=size,
+                size_formatted=format_bytes(size),
+                watch_url=dlink if dlink else None,
+                download_url=dlink if dlink else None,
+                thumbnail_url=thumb_url,
+                success=True if dlink else False,
+                cookie_used=cookie if dlink else None,
+            )
     return None
+
+
+def download_terabox_file(
+    download_url: str,
+    output_path: Path | str,
+    cookie: Optional[str] = None,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> bool:
+    """Download a TeraBox file stream directly to a local file."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://www.terabox.com/",
+        "Accept": "*/*",
+    }
+    if cookie:
+        clean_cookie = cookie.strip()
+        if not clean_cookie.startswith("ndus="):
+            clean_cookie = f"ndus={clean_cookie}"
+        headers["Cookie"] = clean_cookie
+
+    req = Request(download_url, headers=headers)
+    with urlopen(req, timeout=60) as resp, open(output_path, "wb") as f:
+        total = int(resp.headers.get("content-length", 0))
+        downloaded = 0
+        chunk_size = 512 * 1024  # 512 KB
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            downloaded += len(chunk)
+            if progress_callback:
+                progress_callback(downloaded, total)
+    return True
 
 
 def resolve_terabox_link(share_url: str) -> TeraBoxResult:
@@ -233,9 +319,9 @@ def resolve_terabox_link(share_url: str) -> TeraBoxResult:
     """
     api_key = os.getenv("TERABOX_API_KEY")
     api_url = os.getenv("TERABOX_API_URL") or "https://api-v2.teraboxdl.site/api/terabox/extract"
-    cookie = os.getenv("TERABOX_COOKIE") or os.getenv("TERABOX_NDUS_COOKIE")
+    cookie = get_terabox_cookie()
 
-    # 1. Try External Extractor API
+    # 1. Try External Extractor API if configured
     if api_key or os.getenv("TERABOX_API_URL"):
         try:
             res = _resolve_via_external_api(share_url, api_url, api_key)
@@ -244,14 +330,13 @@ def resolve_terabox_link(share_url: str) -> TeraBoxResult:
         except Exception as e:
             logger.warning("External TeraBox API extraction failed: %s", e)
 
-    # 2. Try Cookie-Assisted Method
-    if cookie:
-        try:
-            res = _resolve_via_cookie(share_url, cookie)
-            if res:
-                return res
-        except Exception as e:
-            logger.warning("Cookie-assisted TeraBox extraction failed: %s", e)
+    # 2. Try Cookie-Assisted Method / Web Resolution
+    try:
+        res = _resolve_via_cookie(share_url, cookie)
+        if res:
+            return res
+    except Exception as e:
+        logger.warning("Cookie/Web TeraBox extraction failed: %s", e)
 
     # 3. Fallback: Provide ad-free iTeraPlay web player
     surl = extract_surl(share_url)
