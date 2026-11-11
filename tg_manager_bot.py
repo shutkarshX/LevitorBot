@@ -2,7 +2,7 @@ import os
 import sqlite3
 import logging
 import tempfile
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +15,7 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    BotCommand,
 )
 from telegram.ext import (
     Application,
@@ -74,12 +75,20 @@ def section_text(title, subtitle=None):
 # Database
 # --------------------------------------------------
 
+@contextmanager
 def connect_db():
     db = sqlite3.connect(DB_PATH, timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     db.execute("PRAGMA busy_timeout = 30000")
-    return db
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def ensure_schema():
@@ -1093,6 +1102,11 @@ async def callbacks(update, context):
 # --------------------------------------------------
 
 async def post_init(application):
+    await application.bot.set_my_commands([
+        BotCommand("start", "Open Snapit"),
+        BotCommand("menu", "Open the main menu"),
+    ])
+
     ensure_schema()
 
     client = TelegramClient(
