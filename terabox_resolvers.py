@@ -161,19 +161,9 @@ def _links_from_context(base: str, context: dict, method: str,
     if not direct:
         direct = _download_link(base, context, item)
 
-    # The signed HLS URL is constructed only from values returned by TeraBox.
-    required = ("shareid", "uk", "sign", "timestamp", "fs_id")
-    if not stream and all(data.get(key) is not None for key in required):
-        stream_params = {
-            "uk": data["uk"], "shareid": data["shareid"],
-            "type": "M3U8_AUTO_720", "fid": item["fs_id"],
-            "sign": data["sign"], "timestamp": data["timestamp"],
-            "jsToken": "", "esl": "1", "isplayer": "1", "ehps": "1",
-            "clienttype": "0", "app_id": "250528", "web": "1",
-            "channel": "dubox",
-        }
-        stream = f"{base}/share/streaming?{urlencode(stream_params)}"
-
+    # Only expose a watch URL when TeraBox actually returned one.
+    # A syntactically plausible /share/streaming URL is not proof of a
+    # playable manifest; public-share responses often return errno 130.
     if cookie_mode and not direct:
         params = {
             "app_id": "250528", "jsToken": _js_token(
