@@ -78,11 +78,23 @@ def _share_context(share_url: str, cookie: str | None = None) -> tuple[str, dict
     headers = {"Referer": f"{base}/wap/share/filelist?surl={surl}"}
     if cookie:
         headers["Cookie"] = f"ndus={cookie}"
-    html = _request(
-        f"{base}/wap/share/filelist?surl={surl}&clearCache=1",
-        headers=headers,
-    ).decode("utf-8", errors="replace")
-    token = _js_token(html)
+    # TeraBox intermittently answers with errno 460030 / "dragdrop".
+    # Retry the share-page bootstrap a few times; never attempt CAPTCHA solving.
+    last_error = None
+    html = ""
+    for attempt in range(3):
+        try:
+            html = _request(
+                f"{base}/wap/share/filelist?surl={surl}&clearCache=1&t={int(time.time())}",
+                headers=headers,
+            ).decode("utf-8", errors="replace")
+            token = _js_token(html)
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt == 2:
+                raise ResolverError(f"TeraBox share bootstrap failed: {exc}") from exc
+            time.sleep(0.5 * (attempt + 1))
     params = {
         "app_id": "250528", "shorturl": f"1{surl}", "root": "1",
         "web": "1", "channel": "dubox", "clienttype": "0",
@@ -95,6 +107,49 @@ def _share_context(share_url: str, cookie: str | None = None) -> tuple[str, dict
     return base, {"headers": headers, "data": data, "surl": surl}
 
 
+def _download_link(base: str, context: dict, item: dict) -> str | None:
+    """Ask TeraBox for a fresh share download link using returned share metadata.
+
+    The API may reject public shares or require a logged-in session. In that
+    case return None rather than fabricating a direct URL.
+    """
+    data = context["data"]
+    required = ("shareid", "uk", "sign", "timestamp")
+    if not all(data.get(key) is not None for key in required) or not item.get("fs_id"):
+        return None
+
+    headers = {
+        **context["headers"],
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": base,
+    }
+    params = {
+        "app_id": "250528", "channel": "dubox", "clienttype": "0",
+        "web": "1", "app": "desktop", "version": "1.0",
+    }
+    form = {
+        "sign": str(data["sign"]),
+        "timestamp": str(data["timestamp"]),
+        "shareid": str(data["shareid"]),
+        "uk": str(data["uk"]),
+        "fid_list": json.dumps([int(item["fs_id"])]),
+        "primaryid": str(data["shareid"]),
+        "type": "dlink",
+    }
+    endpoint = f"{base}/share/download?{urlencode(params)}"
+    request = Request(endpoint, data=urlencode(form).encode("utf-8"), headers=headers)
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read(1024 * 1024 + 1).decode("utf-8"))
+        if payload.get("errno") == 0:
+            entries = payload.get("list") or []
+            if entries and entries[0].get("dlink"):
+                return str(entries[0]["dlink"])
+    except Exception:
+        return None
+    return None
+
+
 def _links_from_context(base: str, context: dict, method: str,
                         cookie_mode: bool = False) -> ResolvedLinks:
     data = context["data"]
@@ -103,6 +158,8 @@ def _links_from_context(base: str, context: dict, method: str,
     size = int(item.get("size") or 0)
     direct = item.get("dlink") or item.get("direct_link")
     stream = item.get("stream_url")
+    if not direct:
+        direct = _download_link(base, context, item)
 
     # The signed HLS URL is constructed only from values returned by TeraBox.
     required = ("shareid", "uk", "sign", "timestamp", "fs_id")
