@@ -112,6 +112,113 @@ def ensure_schema():
             VALUES ('sync_schema_version', '1')
             ON CONFLICT(key) DO UPDATE SET value = excluded.value
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS terabox_preferences (
+                user_id INTEGER PRIMARY KEY,
+                method TEXT NOT NULL CHECK(method IN ('external', 'native')),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+def get_terabox_method(user_id):
+    with connect_db() as db:
+        row = db.execute(
+            "SELECT method FROM terabox_preferences WHERE user_id = ?",
+            (int(user_id),)
+        ).fetchone()
+    return row["method"] if row else None
+
+
+def set_terabox_method(user_id, method):
+    if method not in {"external", "native"}:
+        raise ValueError("Unsupported TeraBox method.")
+    with connect_db() as db:
+        db.execute("""
+            INSERT INTO terabox_preferences(user_id, method)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                method = excluded.method,
+                updated_at = CURRENT_TIMESTAMP
+        """, (int(user_id), method))
+
+
+def terabox_method_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 External scraper", callback_data="tbmethod:external")],
+        [InlineKeyboardButton("🛠 Our own scraper", callback_data="tbmethod:native")],
+    ])
+
+
+async def ask_terabox_method(message, *, changing=False):
+    text = (
+        "⚙️ Choose how Snapit should resolve your TeraBox links. "
+        "You can change this anytime with /terabox."
+        if changing else
+        "🔗 How should Snapit process your TeraBox links?\n\n"
+        "Choose once — I'll remember your choice for future links."
+    )
+    await message.reply_text(text, reply_markup=terabox_method_keyboard())
+
+
+async def resolve_terabox_for_user(message, context, share_url, method):
+    from terabox_resolvers import resolve_with_fallback, resolver_settings_from_env
+
+    _, ndus_cookie, external_endpoint = resolver_settings_from_env()
+    if method == "external":
+        modes = ("external",)
+    else:
+        modes = ("native", "cookie") if ndus_cookie else ("native",)
+
+    await message.reply_text("🔎 Resolving your TeraBox link…")
+    try:
+        resolved = await __import__("asyncio").to_thread(
+            resolve_with_fallback,
+            share_url,
+            modes=modes,
+            ndus_cookie=ndus_cookie,
+            external_endpoint=external_endpoint,
+        )
+    except Exception as exc:
+        logging.warning("TeraBox %s resolution failed: %s", method, exc)
+        await message.reply_text(
+            "⚠️ Snapit couldn't generate a direct link using your selected "
+            f"{'external scraper' if method == 'external' else 'own scraper'} method.\n\n"
+            f"Details: {str(exc)[:350]}\n\n"
+            "No TeraBox ad-filled fallback link was sent. You can change your "
+            "method with /terabox."
+        )
+        return
+
+    details = ["📦 TeraBox file resolved", f"File: {resolved.filename}"]
+    if resolved.size:
+        details.append(f"Size: {resolved.size:,} bytes")
+    details.append(f"Resolver: {resolved.method}")
+    buttons = []
+    if resolved.watch_url:
+        buttons.append(InlineKeyboardButton("▶️ Watch", url=resolved.watch_url))
+    if resolved.download_url:
+        buttons.append(InlineKeyboardButton("⬇️ Download", url=resolved.download_url))
+    await message.reply_text(
+        "\n".join(details),
+        reply_markup=InlineKeyboardMarkup([buttons]) if buttons else None,
+        disable_web_page_preview=True,
+    )
+
+
+async def terabox_command(update, context):
+    if not is_admin(update, context):
+        await deny(update)
+        return
+    current = get_terabox_method(update.effective_user.id)
+    if current:
+        label = "External scraper" if current == "external" else "Our own scraper"
+        await update.effective_message.reply_text(
+            f"Your current TeraBox method: {label}.\nChoose a different method or keep this one.",
+            reply_markup=terabox_method_keyboard(),
+        )
+    else:
+        await ask_terabox_method(update.effective_message, changing=True)
 
 
 def get_total_channel_count():
@@ -957,63 +1064,13 @@ async def receive_text(update, context):
         if not is_terabox_link(value):
             return
 
-        await update.message.reply_text(
-            "🔎 Snapit recognised your TeraBox link. Trying enabled resolvers…"
-        )
-        try:
-            from terabox_resolvers import (
-                resolve_with_fallback,
-                resolver_settings_from_env,
-            )
-
-            modes, ndus_cookie, external_endpoint = resolver_settings_from_env()
-            resolved = await __import__("asyncio").to_thread(
-                resolve_with_fallback,
-                value,
-                modes=modes,
-                ndus_cookie=ndus_cookie,
-                external_endpoint=external_endpoint,
-            )
-        except Exception as exc:
-            logging.warning("TeraBox resolution failed: %s", exc)
-            try:
-                result = await __import__("asyncio").to_thread(
-                    inspect_public_share, value
-                )
-                details = ["📦 TeraBox share recognised"]
-                if result.title:
-                    details.append(f"Title: {result.title}")
-                if result.description:
-                    details.append(f"Info: {result.description}")
-                details.append("")
-                details.append(
-                    "No direct watch/download link was returned by the enabled "
-                    "resolver methods."
-                )
-                details.append(f"Resolver detail: {str(exc)[:300]}")
-                await update.message.reply_text("\n".join(details))
-            except Exception:
-                await update.message.reply_text(
-                    "⚠️ I couldn't resolve this TeraBox share. It may be expired, "
-                    "unavailable, or require access that the enabled resolver "
-                    "methods do not have."
-                )
+        user_id = update.effective_user.id
+        method = get_terabox_method(user_id)
+        if not method:
+            context.user_data["pending_terabox_url"] = value
+            await ask_terabox_method(update.message)
             return
-
-        details = ["📦 TeraBox file resolved", f"File: {resolved.filename}"]
-        if resolved.size:
-            details.append(f"Size: {resolved.size:,} bytes")
-        details.append(f"Method: {resolved.method}")
-        buttons = []
-        if resolved.watch_url:
-            buttons.append(InlineKeyboardButton("▶️ Watch", url=resolved.watch_url))
-        if resolved.download_url:
-            buttons.append(InlineKeyboardButton("⬇️ Download", url=resolved.download_url))
-        await update.message.reply_text(
-            "\n".join(details),
-            reply_markup=InlineKeyboardMarkup([buttons]) if buttons else None,
-            disable_web_page_preview=True,
-        )
+        await resolve_terabox_for_user(update.message, context, value, method)
         return
 
     context.user_data.pop("awaiting", None)
@@ -1077,6 +1134,25 @@ async def callbacks(update, context):
         return
 
     data = query.data
+
+    # TeraBox method selection is persisted per Telegram user.
+    if data.startswith("tbmethod:"):
+        method = data.split(":", 1)[1]
+        if method not in {"external", "native"}:
+            await query.answer("Unknown TeraBox method.", show_alert=True)
+            return
+        await query.answer()
+        set_terabox_method(update.effective_user.id, method)
+        label = "External scraper" if method == "external" else "Our own scraper"
+        pending_url = context.user_data.pop("pending_terabox_url", None)
+        await query.edit_message_text(
+            f"✅ Saved: {label}. I'll use this for your future TeraBox links."
+        )
+        if pending_url:
+            await resolve_terabox_for_user(
+                query.message, context, pending_url, method
+            )
+        return
 
     # This handler owns its acknowledgement because it may show an alert.
     if data.startswith("open:"):
@@ -1211,6 +1287,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
+    application.add_handler(CommandHandler("terabox", terabox_command))
     application.add_handler(CallbackQueryHandler(callbacks))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text)
