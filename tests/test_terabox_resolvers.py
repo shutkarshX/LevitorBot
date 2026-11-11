@@ -48,7 +48,7 @@ class TeraBoxResolverUnitTests(unittest.TestCase):
         self.assertEqual(result, "https://download.example/file")
         self.assertTrue(mocked.called)
         request = mocked.call_args.args[0]
-        self.assertEqual(request.method, "POST")
+        self.assertEqual(request.get_method(), "POST")
 
     def test_download_link_returns_none_when_api_rejects_share(self):
         class FakeResponse:
