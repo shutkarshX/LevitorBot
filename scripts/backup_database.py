@@ -1,11 +1,23 @@
 ﻿import sqlite3
+from datetime import datetime
 from pathlib import Path
 
-source = sqlite3.connect("data/tg_manager.db")
-target = sqlite3.connect(r"D:\ME\Projects\TG-Manager\backups\pre_sync_20261110_234031\tg_manager.db")
+ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = ROOT / "data" / "tg_manager.db"
+BACKUP_DIR = ROOT / "backups"
+
+if not DB_PATH.is_file():
+    raise SystemExit(f"Database not found at: {DB_PATH}")
+
+BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+target_path = BACKUP_DIR / f"tg_manager_backup_{timestamp}.db"
+
+source = sqlite3.connect(DB_PATH)
+target = sqlite3.connect(target_path)
 
 source.backup(target)
 
 target.close()
 source.close()
-print("Database backup completed.")
+print(f"Database backup completed successfully: {target_path}")

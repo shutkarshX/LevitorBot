@@ -53,6 +53,19 @@ PAGE_SIZE = 8
 BRAND_NAME = "Snapit"
 
 
+DEFAULT_CATEGORIES = [
+    "Direct Content",
+    "Link Sharing",
+    "Join Required",
+    "Paid",
+    "Redirect",
+    "Ad to Watch",
+    "Empty / No Content",
+    "Garbage",
+    "Old Content",
+]
+
+
 def home_text():
     return (
         f"✨ {BRAND_NAME}\n"
@@ -77,6 +90,7 @@ def section_text(title, subtitle=None):
 
 @contextmanager
 def connect_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB_PATH, timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
@@ -92,8 +106,55 @@ def connect_db():
 
 
 def ensure_schema():
-    """Add sync metadata without rebuilding or replacing existing records."""
+    """Ensure database tables, indexes, and migrations are applied cleanly."""
     with connect_db() as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS channels (
+                title TEXT NOT NULL,
+                username TEXT,
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                account_visibility TEXT NOT NULL,
+                channel_status TEXT NOT NULL,
+                membership_status TEXT NOT NULL,
+                access_model TEXT NOT NULL,
+                content_availability TEXT NOT NULL,
+                invite_link TEXT,
+                payment_notes TEXT,
+                verification_notes TEXT,
+                last_checked TEXT,
+                newly_added INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS channel_categories (
+                channel_id TEXT NOT NULL,
+                category_id INTEGER NOT NULL,
+                assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (channel_id, category_id),
+                FOREIGN KEY (channel_id)
+                    REFERENCES channels(id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id)
+                    REFERENCES categories(category_id) ON DELETE CASCADE
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS app_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
         columns = {
             row["name"]
             for row in db.execute("PRAGMA table_info(channels)").fetchall()
@@ -103,10 +164,28 @@ def ensure_schema():
                 "ALTER TABLE channels ADD COLUMN newly_added "
                 "INTEGER NOT NULL DEFAULT 0"
             )
+
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_channels_title
+            ON channels(title COLLATE NOCASE)
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_channels_username
+            ON channels(username)
+        """)
         db.execute("""
             CREATE INDEX IF NOT EXISTS idx_channels_newly_added
             ON channels(newly_added)
         """)
+
+        cat_count = db.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
+        if cat_count == 0:
+            for cat_name in DEFAULT_CATEGORIES:
+                db.execute(
+                    "INSERT OR IGNORE INTO categories (name) VALUES (?)",
+                    (cat_name,)
+                )
+
         db.execute("""
             INSERT INTO app_metadata(key, value)
             VALUES ('sync_schema_version', '1')
@@ -234,16 +313,21 @@ async def sync_main_dialogs(application):
         # Empty results fail closed to avoid wiping the directory on anomalies.
         if discovered:
             seen_ids = [item["id"] for item in discovered]
-            placeholders = ",".join("?" for _ in seen_ids)
-            cursor = db.execute(
-                f"""
+            db.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS temp_seen_dialogs (id TEXT PRIMARY KEY)"
+            )
+            db.execute("DELETE FROM temp_seen_dialogs")
+            db.executemany(
+                "INSERT OR IGNORE INTO temp_seen_dialogs (id) VALUES (?)",
+                [(item_id,) for item_id in seen_ids]
+            )
+            cursor = db.execute("""
                 DELETE FROM channels
                 WHERE membership_status = 'Present in main chat list'
-                  AND id NOT IN ({placeholders})
-                """,
-                seen_ids,
-            )
+                  AND id NOT IN (SELECT id FROM temp_seen_dialogs)
+            """)
             removed = cursor.rowcount
+            db.execute("DROP TABLE IF EXISTS temp_seen_dialogs")
 
         db.execute("""
             INSERT INTO app_metadata(key, value)
