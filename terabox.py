@@ -62,24 +62,31 @@ class _MetadataParser(HTMLParser):
             self._title_parts.append(data)
 
 
+def _is_allowed_public_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value.strip())
+        port = parsed.port
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return (
+        parsed.scheme == "https"
+        and (parsed.hostname or "").lower() in ALLOWED_HOSTS
+        and parsed.username is None
+        and parsed.password is None
+        and port in (None, 443)
+        and bool(parsed.path)
+    )
+
+
 class _SafeRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        parsed = urlparse(newurl)
-        if parsed.scheme != "https" or (parsed.hostname or "").lower() not in ALLOWED_HOSTS:
+        if not _is_allowed_public_url(newurl):
             raise HTTPError(newurl, code, "Redirect to an unapproved host blocked", headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def is_terabox_link(value: str) -> bool:
-    try:
-        parsed = urlparse(value.strip())
-    except ValueError:
-        return False
-    return (
-        parsed.scheme == "https"
-        and (parsed.hostname or "").lower() in ALLOWED_HOSTS
-        and bool(parsed.path)
-    )
+    return _is_allowed_public_url(value)
 
 
 def inspect_public_share(value: str) -> PublicShareInfo:
