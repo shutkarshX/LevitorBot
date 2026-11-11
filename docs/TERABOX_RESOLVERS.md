@@ -1,36 +1,45 @@
-# TeraBox resolver modes
+# TeraBox resolver methods
 
-Snapit supports an ordered resolver chain. Configure it with environment variables;
-do not put cookies or private resolver URLs in source control.
+Snapit lets each Telegram user choose how their TeraBox links are resolved.
+The selection is stored in the bot's SQLite database and reused for future
+links. Users can change it at any time with `/terabox`.
 
-## Modes
+## User-facing methods
 
-- `native`: requests the public share page and TeraBox public share metadata endpoints.
-  It returns a watch or download URL only when TeraBox actually supplies enough data.
-- `external`: optional HTTPS JSON endpoint configured by the administrator. This
-  sends the share URL to that endpoint, so enable it only when its operator is trusted.
-- `cookie`: optional user-configured `ndus` cookie for TeraBox endpoints that require
-  an authenticated session. The cookie is never logged or returned to users.
+- **External scraper**: calls the administrator-configured HTTPS JSON resolver.
+  The share URL is sent to that service, so configure only a trusted endpoint.
+- **Our own scraper**: uses Snapit's native public-share resolver. If an
+  administrator has configured an `ndus` cookie, the cookie-assisted resolver
+  is attempted after the native resolver fails.
+
+On the first TeraBox link, Snapit asks the user to choose. Once selected,
+subsequent links are processed immediately using that preference. The result
+contains Watch and/or Download buttons only when a resolver returns usable
+direct URLs. Snapit does not silently fall back to the original TeraBox page.
 
 ## Environment
 
 ```dotenv
-TERABOX_RESOLVER_ORDER=native,external,cookie
 TERABOX_EXTERNAL_RESOLVER_URL=
 TERABOX_NDUS_COOKIE=
 ```
 
-The default is `native` only. External and cookie modes are opt-in. Resolver order
-is significant: Snapit stops at the first method that returns at least one usable
-watch or download URL.
+The external endpoint must accept an HTTPS JSON POST body containing
+`{"url":"<TeraBox share URL>"}` and return JSON with a usable watch and/or
+download URL. Supported response keys include `watch_url` or `stream_url`,
+and `download_url` or `direct_link`; `filename` and `size` are optional.
 
-The external endpoint must accept a JSON POST body `{"url":"<share-url>"}` and
-return JSON with `filename`, `size`, and at least one of `watch_url` /
-`stream_url` or `download_url` / `direct_link`.
+The external method is not available until a trusted endpoint is configured.
+The own-scraper method may still fail for shares where TeraBox requires
+authorization or changes its private API. A successful metadata lookup is not
+proof that a direct playback or download URL was generated.
 
-## Current integration status
+## Security and operation
 
-This commit adds the resolver module and isolated unit tests. The existing Telegram
-message handler still uses the prior public-share inspection flow; wiring the
-resolver results into Telegram Watch / Download buttons is a separate integration
-step. No production bot, database, or deployment is changed by this module.
+- Keep `TERABOX_NDUS_COOKIE` server-side in the host's environment; never
+  commit it or send it in Telegram.
+- Treat the external resolver as a recipient of the full share URL.
+- Resolver failures are reported as failures. Snapit does not send the
+  original ad-filled share page as a fake direct link.
+- Existing channel records and category assignments are not rebuilt by the
+  preference-table migration.
