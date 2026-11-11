@@ -78,10 +78,11 @@ def _share_context(share_url: str, cookie: str | None = None) -> tuple[str, dict
     headers = {"Referer": f"{base}/wap/share/filelist?surl={surl}"}
     if cookie:
         headers["Cookie"] = f"ndus={cookie}"
-    # TeraBox intermittently answers with errno 460030 / "dragdrop".
-    # Retry the share-page bootstrap a few times; never attempt CAPTCHA solving.
+    # "dragdrop" (often errno 460030) is returned by shorturlinfo, not
+    # necessarily by the WAP bootstrap. Refresh the page token and retry the
+    # API request as a bounded transient retry; do not attempt CAPTCHA solving.
+    data = None
     last_error = None
-    html = ""
     for attempt in range(3):
         try:
             html = _request(
@@ -89,21 +90,31 @@ def _share_context(share_url: str, cookie: str | None = None) -> tuple[str, dict
                 headers=headers,
             ).decode("utf-8", errors="replace")
             token = _js_token(html)
-            break
+            params = {
+                "app_id": "250528", "shorturl": f"1{surl}", "root": "1",
+                "web": "1", "channel": "dubox", "clienttype": "0",
+                "jsToken": token, "t": str(int(time.time())),
+            }
+            endpoint = f"{base}/api/shorturlinfo?{urlencode(params)}"
+            data = json.loads(_request(endpoint, headers=headers).decode("utf-8"))
+            if data.get("errno") == 0 and data.get("list"):
+                break
+            message = str(data.get("errmsg") or data.get("errno") or "unknown error")
+            last_error = ResolverError(message)
+            if "dragdrop" not in message.lower() and str(data.get("errno")) != "460030":
+                raise last_error
+        except ResolverError as exc:
+            last_error = exc
+            if "dragdrop" not in str(exc).lower() and "token" not in str(exc).lower():
+                raise
         except Exception as exc:
             last_error = exc
-            if attempt == 2:
-                raise ResolverError(f"TeraBox share bootstrap failed: {exc}") from exc
-            time.sleep(0.5 * (attempt + 1))
-    params = {
-        "app_id": "250528", "shorturl": f"1{surl}", "root": "1",
-        "web": "1", "channel": "dubox", "clienttype": "0",
-        "jsToken": token, "t": str(int(time.time())),
-    }
-    endpoint = f"{base}/api/shorturlinfo?{urlencode(params)}"
-    data = json.loads(_request(endpoint, headers=headers).decode("utf-8"))
-    if data.get("errno") != 0 or not data.get("list"):
-        raise ResolverError(data.get("errmsg") or "TeraBox returned no shared files.")
+        if attempt < 2:
+            time.sleep(0.75 * (attempt + 1))
+    if not data or data.get("errno") != 0 or not data.get("list"):
+        raise ResolverError(
+            f"TeraBox share lookup failed after 3 attempts: {last_error or 'no shared files'}"
+        )
     return base, {"headers": headers, "data": data, "surl": surl}
 
 
