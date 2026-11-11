@@ -15,6 +15,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 ALLOWED_HOSTS = {
     "terabox.com",
     "www.terabox.com",
+    "terabox.app",
+    "www.terabox.app",
     "1024terabox.com",
     "www.1024terabox.com",
     "teraboxapp.com",
