@@ -390,8 +390,23 @@ async def send_database_backup(update: Update, context: ContextTypes.DEFAULT_TYP
 # --------------------------------------------------
 
 async def handle_terabox_message(update: Update, context: ContextTypes.DEFAULT_TYPE, share_url: str):
+    logger.info("Processing detected TeraBox link: %s", share_url)
     status_msg = await update.message.reply_text("⏳ Processing TeraBox link…")
-    result = await asyncio.to_thread(resolve_terabox_link, share_url)
+
+    try:
+        result = await asyncio.to_thread(resolve_terabox_link, share_url)
+    except Exception as exc:
+        logger.exception("Failed during resolve_terabox_link: %s", exc)
+        result = TeraBoxResult(
+            url=share_url,
+            title="TeraBox Media File",
+            size=0,
+            size_formatted="Stream / Direct Download",
+            watch_url=None,
+            download_url=None,
+            iteraplay_url="https://iteraplay.com",
+            success=False,
+        )
 
     keyboard = []
     action_row = []
@@ -436,38 +451,59 @@ async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update, context):
         return
 
-    raw_text = (update.message.text or "").strip()
+    raw_text = (update.message.text or update.message.caption or "").strip()
     if not raw_text:
         return
+
+    logger.info("Received message from admin: %s", raw_text[:80])
 
     # 1. Automatic TeraBox link detection
     tb_url = extract_terabox_url(raw_text)
     if tb_url:
+        logger.info("Extracted TeraBox URL: %s", tb_url)
         await handle_terabox_message(update, context, tb_url)
         return
 
     # 2. General menu input state handling
     awaiting = context.user_data.get("awaiting")
-    if not awaiting:
+    if awaiting:
+        value = raw_text
+        context.user_data.pop("awaiting", None)
+
+        if awaiting == "search":
+            await show_search_results(update, context, value)
+
+        elif awaiting == "new_category":
+            if len(value) > 60:
+                await update.message.reply_text("Keep the category name under 60 characters.")
+                return
+            try:
+                db.create_category(value)
+                await categories(update, context)
+            except sqlite3.IntegrityError:
+                await update.message.reply_text("Couldn't create that shelf. Check whether its name already exists.")
+
+        elif awaiting == "rename_category":
+            category_id = context.user_data.pop("rename_category_id", None)
+            if not category_id:
+                return
+            if len(value) > 60:
+                await update.message.reply_text("Keep the category name under 60 characters.")
+                return
+            db.rename_category(category_id, value)
+            await category_management_page(update, context, category_id)
         return
 
-    value = raw_text
-    context.user_data.pop("awaiting", None)
-
-    if awaiting == "search":
-        await show_search_results(update, context, value)
-
-    elif awaiting == "new_category":
-        if len(value) > 60:
-            await update.message.reply_text("Keep the category name under 60 characters.")
-            return
-        try:
-            db.create_category(value)
-            await categories(update, context)
-        except sqlite3.IntegrityError:
-            await update.message.reply_text("Couldn't create that shelf. Check whether its name already exists.")
-
-    elif awaiting == "rename_category":
+    # 3. Informative response if user sends non-menu text
+    if raw_text.startswith("http://") or raw_text.startswith("https://"):
+        await update.message.reply_text(
+            "⚠️ This link was not recognized as a supported TeraBox link.\n"
+            "Please send a TeraBox share link (e.g. terabox.com, 1024tera.com, etc.)."
+        )
+    else:
+        await update.message.reply_text(
+            "✨ Send me any TeraBox link to watch or download, or send /start to open your library."
+        )
         category_id = context.user_data.pop("rename_category_id", None)
         if not category_id:
             return

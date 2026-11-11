@@ -17,25 +17,18 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_DOMAINS = (
-    "terabox.com",
-    "terabox.app",
-    "teraboxapp.com",
-    "1024tera.com",
-    "1024terabox.com",
-    "terasharelink.com",
-    "freeterabox.com",
-    "4funbox.com",
-    "mirrobox.com",
-    "nephobox.com",
-    "terabox.fun",
-)
-
-TERABOX_URL_PATTERN = re.compile(
-    r"https?://(?:[a-zA-Z0-9-]+\.)*(?:"
-    + "|".join(re.escape(d) for d in SUPPORTED_DOMAINS)
-    + r")/(?:s/|sharing/link\?surl=)[A-Za-z0-9_-]+",
-    re.IGNORECASE,
+TERABOX_HOST_KEYWORDS = (
+    "terabox",
+    "1024tera",
+    "4funbox",
+    "mirrobox",
+    "nephobox",
+    "momerybox",
+    "tibibox",
+    "dubox",
+    "terashare",
+    "terafiles",
+    "freeterabox",
 )
 
 
@@ -53,11 +46,20 @@ class TeraBoxResult:
 
 
 def extract_terabox_url(text: str) -> Optional[str]:
-    """Find and extract a TeraBox share URL from an incoming message string."""
+    """Find and extract any TeraBox link from message text or caption."""
     if not text:
         return None
-    match = TERABOX_URL_PATTERN.search(text.strip())
-    return match.group(0) if match else None
+    # Match any URL in text
+    urls = re.findall(r"https?://[^\s<>\"']+", text)
+    for u in urls:
+        try:
+            parsed = urlparse(u)
+            host = (parsed.hostname or "").lower()
+            if any(keyword in host for keyword in TERABOX_HOST_KEYWORDS):
+                return u.rstrip(".,;!?'\")>]}")
+        except Exception:
+            continue
+    return None
 
 
 def format_bytes(size: int) -> str:
@@ -74,17 +76,29 @@ def format_bytes(size: int) -> str:
 
 
 def extract_surl(share_url: str) -> str:
-    """Extract the clean shorturl / surl token from a share URL."""
-    parsed = urlparse(share_url)
-    query = parse_qs(parsed.query)
-    surl = (query.get("surl") or [None])[0]
-    if not surl:
-        match = re.search(r"/s/1?([A-Za-z0-9_-]+)", parsed.path)
-        if match:
-            surl = match.group(1)
-    if not surl:
-        raise ValueError("Could not extract a valid TeraBox share code.")
-    return surl
+    """Extract clean surl shortcode from any TeraBox share URL."""
+    try:
+        parsed = urlparse(share_url)
+        query = parse_qs(parsed.query)
+        surl = (query.get("surl") or [None])[0]
+        if not surl:
+            match = re.search(r"/(?:s|share|wap)/1?([A-Za-z0-9_-]+)", parsed.path)
+            if match:
+                surl = match.group(1)
+        if not surl:
+            match = re.search(r"/1([A-Za-z0-9_-]{5,})", parsed.path)
+            if match:
+                surl = match.group(1)
+        if not surl:
+            parts = [p.strip() for p in parsed.path.split("/") if p.strip()]
+            for part in reversed(parts):
+                cleaned = part.lstrip("1")
+                if len(cleaned) >= 5 and re.match(r"^[A-Za-z0-9_-]+$", cleaned):
+                    surl = cleaned
+                    break
+        return surl or "file"
+    except Exception:
+        return "file"
 
 
 def _http_request(url: str, headers: Optional[dict] = None, data: Optional[bytes] = None, timeout: int = 25) -> bytes:
@@ -117,7 +131,6 @@ def _resolve_via_external_api(share_url: str, api_url: str, api_key: Optional[st
     raw = _http_request(api_url, headers=headers, data=payload, timeout=30)
     data = json.loads(raw.decode("utf-8"))
 
-    # Support multiple common response formats
     entries = data.get("list") or (data.get("data", {}).get("list") if isinstance(data.get("data"), dict) else None)
     if not entries and isinstance(data.get("data"), dict):
         entries = [data["data"]]
@@ -151,7 +164,6 @@ def _resolve_via_cookie(share_url: str, cookie: str) -> Optional[TeraBoxResult]:
         "Cookie": f"ndus={cookie.strip()}",
     }
 
-    # Fetch token
     html = _http_request(
         f"{base}/wap/share/filelist?surl={surl}&clearCache=1&t={int(time.time())}",
         headers=headers,
@@ -181,7 +193,6 @@ def _resolve_via_cookie(share_url: str, cookie: str) -> Optional[TeraBoxResult]:
         size = int(item.get("size") or 0)
         dlink = item.get("dlink")
 
-        # If dlink requires an explicit download call
         if not dlink and "fs_id" in item:
             try:
                 dl_payload = urlencode({
@@ -224,7 +235,7 @@ def resolve_terabox_link(share_url: str) -> TeraBoxResult:
     api_url = os.getenv("TERABOX_API_URL") or "https://api-v2.teraboxdl.site/api/terabox/extract"
     cookie = os.getenv("TERABOX_COOKIE") or os.getenv("TERABOX_NDUS_COOKIE")
 
-    # 1. Try External Extractor API (Fastest & most reliable without personal login)
+    # 1. Try External Extractor API
     if api_key or os.getenv("TERABOX_API_URL"):
         try:
             res = _resolve_via_external_api(share_url, api_url, api_key)
@@ -243,14 +254,12 @@ def resolve_terabox_link(share_url: str) -> TeraBoxResult:
             logger.warning("Cookie-assisted TeraBox extraction failed: %s", e)
 
     # 3. Fallback: Provide ad-free iTeraPlay web player
-    try:
-        surl = extract_surl(share_url)
-    except Exception:
-        surl = "file"
+    surl = extract_surl(share_url)
+    display_id = surl if len(surl) <= 16 else f"{surl[:14]}..."
 
     return TeraBoxResult(
         url=share_url,
-        title=f"TeraBox Video/File ({surl[:12]}...)",
+        title=f"TeraBox Video/File ({display_id})",
         size=0,
         size_formatted="Stream / Direct Download",
         watch_url=None,
