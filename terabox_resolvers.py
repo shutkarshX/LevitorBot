@@ -112,9 +112,26 @@ def _share_context(share_url: str, cookie: str | None = None) -> tuple[str, dict
         if attempt < 2:
             time.sleep(0.75 * (attempt + 1))
     if not data or data.get("errno") != 0 or not data.get("list"):
-        raise ResolverError(
-            f"TeraBox share lookup failed after 3 attempts: {last_error or 'no shared files'}"
-        )
+        errno = data.get("errno") if isinstance(data, dict) else None
+        message = (
+            data.get("errmsg") or data.get("show_msg")
+            if isinstance(data, dict) else None
+        ) or str(last_error or "no shared files")
+        request_id = data.get("request_id") if isinstance(data, dict) else None
+        if str(errno) == "460030" or "dragdrop" in str(message).lower():
+            detail = (
+                "TeraBox rejected anonymous share lookup (dragdrop). "
+                "Retries cannot remove this server-side restriction. "
+                "Configure TERABOX_NDUS_COOKIE for the own-scraper method, "
+                "or configure a trusted external HTTPS resolver."
+            )
+        else:
+            detail = f"TeraBox share lookup failed: {message}"
+        suffix = f" (errno={errno}" if errno is not None else " (errno=unknown"
+        if request_id:
+            suffix += f", request_id={request_id}"
+        suffix += ")"
+        raise ResolverError(detail + suffix)
     return base, {"headers": headers, "data": data, "surl": surl}
 
 
