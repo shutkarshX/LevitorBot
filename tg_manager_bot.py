@@ -947,12 +947,43 @@ async def receive_text(update, context):
     if not is_admin(update, context):
         return
 
+    value = (update.message.text or "").strip()
     awaiting = context.user_data.get("awaiting")
 
+    # TeraBox links are accepted directly, without requiring a menu flow.
     if not awaiting:
+        from terabox import inspect_public_share, is_terabox_link
+
+        if not is_terabox_link(value):
+            return
+
+        await update.message.reply_text("🔎 Snapit recognised your TeraBox link. Checking its public share page…")
+        try:
+            result = await __import__("asyncio").to_thread(inspect_public_share, value)
+        except Exception:
+            logging.exception("TeraBox public-share inspection failed.")
+            await update.message.reply_text(
+                "⚠️ I couldn't read this public share page. It may be expired, "
+                "password-protected, unavailable, or temporarily blocked. "
+                "No account login or access-control bypass was attempted."
+            )
+            return
+
+        details = ["📦 TeraBox share recognised"]
+        if result.title:
+            details.append(f"Title: {result.title}")
+        if result.description:
+            details.append(f"Info: {result.description}")
+        details.append("")
+        details.append(
+            "Public page inspection works. Direct playback-link resolution "
+            "is the next development step; this version does not fabricate "
+            "a watch or download URL."
+        )
+        await update.message.reply_text("\\n".join(details))
         return
 
-    value = update.message.text.strip()
+    context.user_data.pop("awaiting", None)
     context.user_data.pop("awaiting", None)
 
     if not value:
