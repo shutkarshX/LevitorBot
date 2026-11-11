@@ -6,8 +6,7 @@ links. Users can change it at any time with `/terabox`.
 
 ## User-facing methods
 
-- **External scraper**: calls the administrator-configured HTTPS JSON resolver.
-  The share URL is sent to that service, so configure only a trusted endpoint.
+- **External scraper**: uses the TeraBoxDL hosted extraction API when `TERABOX_API_KEY` is configured, or an administrator-configured HTTPS JSON resolver when `TERABOX_EXTERNAL_RESOLVER_URL` is set. The share URL is sent to that service, so configure only a trusted provider.
 - **Our own scraper**: uses Snapit's native public-share resolver. If an
   administrator has configured an `ndus` cookie, the cookie-assisted resolver
   is attempted after the native resolver fails.
@@ -20,11 +19,18 @@ direct URLs. Snapit does not silently fall back to the original TeraBox page.
 ## Environment
 
 ```dotenv
+TERABOX_API_KEY=
 TERABOX_EXTERNAL_RESOLVER_URL=
 TERABOX_NDUS_COOKIE=
 ```
 
-The external endpoint must accept an HTTPS JSON POST body containing
+For the no-TeraBox-account route, create a TeraBoxDL API key and set
+`TERABOX_API_KEY`. Snapit sends an HTTPS POST to
+`https://api-v2.teraboxdl.site/api/terabox/extract` with the key in the
+`X-API-KEY` header and the share URL in JSON. The provider documentation
+currently advertises a free quota of 100 requests per month; availability and
+terms are controlled by the provider. Alternatively, a generic external
+endpoint must accept an HTTPS JSON POST body containing
 `{"url":"<TeraBox share URL>"}` and return JSON with a usable watch and/or
 download URL. Supported response keys include `watch_url` or `stream_url`,
 and `download_url` or `direct_link`; `filename` and `size` are optional.
@@ -34,13 +40,15 @@ The own-scraper method refreshes the WAP page token and retries the
 `shorturlinfo` lookup up to three times when TeraBox returns `dragdrop`.
 If TeraBox continues rejecting the anonymous request, Snapit reports that
 restriction explicitly. Retries cannot remove a server-side access restriction.
+The external API provider may resolve public shares without a TeraBox login,
+but it requires its own API key and successful provider-side extraction.
 
 For shares that can be listed, Snapit attempts TeraBox's `/share/download`
 API using the returned share metadata and file ID. This may produce a fresh
 direct download URL, but TeraBox can still require an authenticated session
-or reject the request. Configure `TERABOX_NDUS_COOKIE` server-side for the
-cookie-assisted own-scraper path, or configure a trusted external HTTPS
-resolver. Without either, anonymous resolution is not guaranteed.
+or reject the request. Configure `TERABOX_API_KEY` server-side for the hosted no-TeraBox-login
+resolver, or configure a trusted external HTTPS resolver. An NDUS cookie is
+optional and only needed for the cookie-assisted own-scraper path. Without either, anonymous resolution is not guaranteed.
 
 ## Security and operation
 
