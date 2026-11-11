@@ -11,6 +11,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional, Callable
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -324,11 +325,22 @@ def download_terabox_file(
             raise RuntimeError("No media stream segments found in playlist.")
 
         total_segments = len(ts_urls)
+
+        def _fetch_segment(item):
+            idx, seg_url = item
+            seg_req = Request(seg_url, headers={"User-Agent": headers["User-Agent"]})
+            with urlopen(seg_req, timeout=25) as seg_resp:
+                return idx, seg_resp.read()
+
+        # Download segments in parallel (up to 4 workers)
+        with ThreadPoolExecutor(max_workers=min(4, total_segments)) as pool:
+            chunks = list(pool.map(_fetch_segment, enumerate(ts_urls)))
+
+        # Reassemble chunks in strict chronological index order
+        chunks.sort(key=lambda x: x[0])
         with open(output_path, "wb") as out_f:
-            for idx, seg_url in enumerate(ts_urls):
-                seg_req = Request(seg_url, headers={"User-Agent": headers["User-Agent"]})
-                with urlopen(seg_req, timeout=30) as seg_resp:
-                    out_f.write(seg_resp.read())
+            for idx, data in chunks:
+                out_f.write(data)
                 if progress_callback:
                     progress_callback(idx + 1, total_segments)
         return True
