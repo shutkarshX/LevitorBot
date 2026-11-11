@@ -47,7 +47,7 @@ def _surl(share_url: str) -> str:
     if not value:
         match = re.search(r"/s/1?([A-Za-z0-9_-]+)", parsed.path)
         value = match.group(1) if match else None
-    if not value or not re.fullmatch(r"[A-Za-z0-9_-]{5,100}", value):
+    if not value or not re.fullmatch(r"[A-Za-z0-9_-]{6,100}", value):
         raise ResolverError("Could not extract a valid TeraBox share code.")
     return value
 
