@@ -111,8 +111,16 @@ async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db.set_setting("terabox_cookie", token)
     logger.info("TeraBox cookie successfully saved by admin.")
-    await update.message.reply_text(
+
+    # Privacy & security: auto-delete user command message containing the token
+    try:
+        await update.message.delete()
+    except Exception as del_err:
+        logger.debug("Could not auto-delete cookie command message: %s", del_err)
+
+    await update.effective_chat.send_message(
         "✅ <b>TeraBox Cookie saved successfully!</b>\n\n"
+        "🔒 <i>Your command message was auto-deleted for privacy & security.</i>\n"
         "🎬 Direct in-chat Telegram video playback is now active.\n"
         "Send any TeraBox link to try it out!\n\n"
         "💡 <i>Your PC does NOT need to stay on; this token works 24/7 on your hosting server.</i>",
@@ -704,6 +712,7 @@ async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await category_management_page(update, context, category_id)
 
         elif awaiting == "cookie":
+            context.user_data.pop("awaiting", None)
             token = value.strip().strip('"').strip("'")
             if token.startswith("ndus="):
                 token = token[5:].strip()
@@ -712,8 +721,16 @@ async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             db.set_setting("terabox_cookie", token)
             logger.info("TeraBox cookie updated via awaiting state.")
-            await update.message.reply_text(
+
+            # Privacy & security: auto-delete user message containing the token
+            try:
+                await update.message.delete()
+            except Exception as del_err:
+                logger.debug("Could not auto-delete cookie input message: %s", del_err)
+
+            await update.effective_chat.send_message(
                 "✅ <b>TeraBox Cookie saved successfully!</b>\n\n"
+                "🔒 <i>Your message was auto-deleted for privacy & security.</i>\n\n"
                 "🎬 Direct in-chat Telegram video playback is now active.\n"
                 "Send any TeraBox link to try it!",
                 parse_mode="HTML",

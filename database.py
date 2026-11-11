@@ -212,22 +212,23 @@ def get_channel_categories(channel_id: str) -> List[sqlite3.Row]:
         """, (str(channel_id),)).fetchall()
 
 
-def create_category(name: str):
+def create_category(name: str) -> int:
     with connect_db() as db:
-        db.execute("INSERT INTO categories (name, created_at) VALUES (?, datetime('now'))", (name,))
+        cursor = db.execute("INSERT INTO categories (name, created_at) VALUES (?, datetime('now'))", (name,))
+        return cursor.lastrowid
 
 
-def rename_category(category_id: int, name: str):
+def rename_category(category_id: int, name: str) -> None:
     with connect_db() as db:
         db.execute("UPDATE categories SET name = ? WHERE category_id = ?", (name, category_id))
 
 
-def delete_category(category_id: int):
+def delete_category(category_id: int) -> None:
     with connect_db() as db:
         db.execute("DELETE FROM categories WHERE category_id = ?", (category_id,))
 
 
-def toggle_channel_category(channel_id: str, category_id: int):
+def toggle_channel_category(channel_id: str, category_id: int) -> bool:
     with connect_db() as db:
         exists = db.execute("""
             SELECT 1 FROM channel_categories
@@ -239,6 +240,7 @@ def toggle_channel_category(channel_id: str, category_id: int):
                 DELETE FROM channel_categories
                 WHERE channel_id = ? AND category_id = ?
             """, (str(channel_id), category_id))
+            return False
         else:
             db.execute("""
                 INSERT INTO channel_categories
@@ -247,6 +249,7 @@ def toggle_channel_category(channel_id: str, category_id: int):
             """, (str(channel_id), category_id))
             # Once classified, mark newly_added as 0
             db.execute("UPDATE channels SET newly_added = 0 WHERE id = ?", (str(channel_id),))
+            return True
 
 
 def save_sync_results(discovered: List[Dict[str, Any]], now: str) -> Dict[str, int]:

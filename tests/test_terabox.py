@@ -1,4 +1,10 @@
+"""
+Unit tests for TeraBox link parsing, byte formatting, and extraction resolver.
+Uses mocked network responses to guarantee fast, deterministic offline execution.
+"""
 import unittest
+from unittest.mock import patch, MagicMock
+
 from terabox import (
     extract_terabox_url,
     extract_surl,
@@ -35,11 +41,39 @@ class TestTeraBoxEngine(unittest.TestCase):
         self.assertEqual(format_bytes(1048576 * 50), "50.0 MB")
         self.assertEqual(format_bytes(1073741824 * 2), "2.0 GB")
 
-    def test_fallback_resolution(self):
+    @patch("terabox._resolve_via_cookie")
+    @patch("terabox._resolve_via_external_api")
+    def test_fallback_resolution_mocked(self, mock_ext, mock_cookie):
+        """When extractors fail or require verification, return safe iTeraPlay fallback."""
+        mock_ext.return_value = None
+        mock_cookie.return_value = None
+
         res = resolve_terabox_link("https://terabox.com/s/1ABCdef123")
         self.assertIsInstance(res, TeraBoxResult)
+        self.assertFalse(res.success)
         self.assertEqual(res.iteraplay_url, "https://iteraplay.com")
         self.assertIn("ABCdef123", res.title)
+
+    @patch("terabox._resolve_via_cookie")
+    def test_successful_cookie_resolution_mocked(self, mock_cookie):
+        """When cookie resolution succeeds, return full streaming result."""
+        mock_cookie.return_value = TeraBoxResult(
+            url="https://terabox.com/s/1ABCdef123",
+            title="Sample_Video.mp4",
+            size=10485760,
+            size_formatted="10.0 MB",
+            watch_url="https://streaming.terabox.com/video.m3u8",
+            download_url="https://streaming.terabox.com/video.m3u8",
+            thumbnail_url="https://terabox.com/thumb.jpg",
+            success=True,
+            cookie_used="ndus_sample",
+        )
+
+        res = resolve_terabox_link("https://terabox.com/s/1ABCdef123")
+        self.assertTrue(res.success)
+        self.assertEqual(res.title, "Sample_Video.mp4")
+        self.assertEqual(res.size_formatted, "10.0 MB")
+        self.assertEqual(res.cookie_used, "ndus_sample")
 
 
 if __name__ == "__main__":

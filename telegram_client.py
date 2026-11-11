@@ -61,7 +61,20 @@ async def resolve_channel_link(client: TelegramClient, channel: Dict[str, Any]) 
         return f"https://t.me/{username}", None
 
     if channel["type"] == "Basic Group":
-        return None, "This is a basic group. Open it from your Telegram chat list."
+        channel_id = int(channel["id"])
+        # 1. Try to fetch existing exported invite link if present
+        try:
+            from telethon.tl.functions.messages import GetFullChatRequest
+            full_res = await client(GetFullChatRequest(chat_id=channel_id))
+            full = getattr(full_res, "full_chat", None)
+            exported = getattr(full, "exported_invite", None)
+            if exported and hasattr(exported, "link") and exported.link:
+                return exported.link, None
+        except Exception as exc:
+            logger.debug("Could not query exported invite for basic group %s: %s", channel_id, exc)
+
+        # 2. Native Telegram deep-link for the member to open in app directly
+        return f"tg://openmessage?chat_id={channel_id}", None
 
     try:
         channel_id = int(channel["id"])
