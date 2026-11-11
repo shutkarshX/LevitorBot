@@ -958,32 +958,62 @@ async def receive_text(update, context):
             return
 
         await update.message.reply_text(
-            "🔎 Snapit recognised your TeraBox link. "
-            "Checking its public share page…"
+            "🔎 Snapit recognised your TeraBox link. Trying enabled resolvers…"
         )
         try:
-            result = await __import__("asyncio").to_thread(inspect_public_share, value)
-        except Exception:
-            logging.exception("TeraBox public-share inspection failed.")
-            await update.message.reply_text(
-                "⚠️ I couldn't read this public share page. It may be expired, "
-                "password-protected, unavailable, or temporarily blocked. "
-                "No account login or access-control bypass was attempted."
+            from terabox_resolvers import (
+                resolve_with_fallback,
+                resolver_settings_from_env,
             )
+
+            modes, ndus_cookie, external_endpoint = resolver_settings_from_env()
+            resolved = await __import__("asyncio").to_thread(
+                resolve_with_fallback,
+                value,
+                modes=modes,
+                ndus_cookie=ndus_cookie,
+                external_endpoint=external_endpoint,
+            )
+        except Exception as exc:
+            logging.warning("TeraBox resolution failed: %s", exc)
+            try:
+                result = await __import__("asyncio").to_thread(
+                    inspect_public_share, value
+                )
+                details = ["📦 TeraBox share recognised"]
+                if result.title:
+                    details.append(f"Title: {result.title}")
+                if result.description:
+                    details.append(f"Info: {result.description}")
+                details.append("")
+                details.append(
+                    "No direct watch/download link was returned by the enabled "
+                    "resolver methods."
+                )
+                details.append(f"Resolver detail: {str(exc)[:300]}")
+                await update.message.reply_text("\n".join(details))
+            except Exception:
+                await update.message.reply_text(
+                    "⚠️ I couldn't resolve this TeraBox share. It may be expired, "
+                    "unavailable, or require access that the enabled resolver "
+                    "methods do not have."
+                )
             return
 
-        details = ["📦 TeraBox share recognised"]
-        if result.title:
-            details.append(f"Title: {result.title}")
-        if result.description:
-            details.append(f"Info: {result.description}")
-        details.append("")
-        details.append(
-            "Snapit received the public page response. Direct playback-link "
-            "resolution is a separate next step; this version does not "
-            "fabricate a watch or download URL."
+        details = ["📦 TeraBox file resolved", f"File: {resolved.filename}"]
+        if resolved.size:
+            details.append(f"Size: {resolved.size:,} bytes")
+        details.append(f"Method: {resolved.method}")
+        buttons = []
+        if resolved.watch_url:
+            buttons.append(InlineKeyboardButton("▶️ Watch", url=resolved.watch_url))
+        if resolved.download_url:
+            buttons.append(InlineKeyboardButton("⬇️ Download", url=resolved.download_url))
+        await update.message.reply_text(
+            "\n".join(details),
+            reply_markup=InlineKeyboardMarkup([buttons]) if buttons else None,
+            disable_web_page_preview=True,
         )
-        await update.message.reply_text("\n".join(details))
         return
 
     context.user_data.pop("awaiting", None)
