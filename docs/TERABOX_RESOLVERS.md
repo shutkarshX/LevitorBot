@@ -30,9 +30,17 @@ download URL. Supported response keys include `watch_url` or `stream_url`,
 and `download_url` or `direct_link`; `filename` and `size` are optional.
 
 The external method is not available until a trusted endpoint is configured.
-The own-scraper method may still fail for shares where TeraBox requires
-authorization or changes its private API. A successful metadata lookup is not
-proof that a direct playback or download URL was generated.
+The own-scraper method refreshes the WAP page token and retries the
+`shorturlinfo` lookup up to three times when TeraBox returns `dragdrop`.
+If TeraBox continues rejecting the anonymous request, Snapit reports that
+restriction explicitly. Retries cannot remove a server-side access restriction.
+
+For shares that can be listed, Snapit attempts TeraBox's `/share/download`
+API using the returned share metadata and file ID. This may produce a fresh
+direct download URL, but TeraBox can still require an authenticated session
+or reject the request. Configure `TERABOX_NDUS_COOKIE` server-side for the
+cookie-assisted own-scraper path, or configure a trusted external HTTPS
+resolver. Without either, anonymous resolution is not guaranteed.
 
 ## Security and operation
 
