@@ -22,6 +22,12 @@ A private Telegram space and destination manager bot. **Snapit** pairs a **Teleg
 - **Live Database Snapshots in Chat**:
   - Built-in `/menu` -> Management -> Download backup.
   - Uses SQLite's online backup API to take a point-in-time snapshot, runs `PRAGMA integrity_check`, and sends the `.db` file directly to you inside Telegram.
+- **TeraBox Watch & Download Engine**:
+  - Send **any TeraBox share link** directly to the bot.
+  - Instant metadata resolution (title and file size).
+  - One-tap buttons for **▶️ Watch Online** and **⬇️ Fast Download** (bypassing TeraBox's heavy ads, app install prompts, and redirect loops).
+  - Ad-free companion bridge via **iTeraPlay** (`iteraplay.com`).
+  - Supports optional API keys (`TERABOX_API_KEY`) or personal cookies (`TERABOX_COOKIE`) for direct in-chat download links.
 - **Zero-Config Database Initialization**:
   - The bot automatically creates the SQLite database, tables, indexes, and default categories if starting fresh.
 

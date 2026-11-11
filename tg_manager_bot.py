@@ -1,4 +1,5 @@
 import os
+import asyncio
 import sqlite3
 import logging
 import tempfile
@@ -25,6 +26,8 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+
+from terabox import extract_terabox_url, resolve_terabox_link
 
 # --------------------------------------------------
 # Configuration
@@ -1024,6 +1027,69 @@ async def delete_category(update, context, category_id):
 
 
 # --------------------------------------------------
+# TeraBox Link Handler
+# --------------------------------------------------
+
+async def handle_terabox_message(update, context, share_url):
+    status_msg = await update.message.reply_text("⏳ Processing TeraBox link…")
+
+    result = await asyncio.to_thread(resolve_terabox_link, share_url)
+
+    keyboard = []
+    action_row = []
+    if result.watch_url:
+        action_row.append(InlineKeyboardButton("▶️ Watch Online", url=result.watch_url))
+    if result.download_url:
+        action_row.append(InlineKeyboardButton("⬇️ Fast Download", url=result.download_url))
+
+    if action_row:
+        keyboard.append(action_row)
+
+    # Web player companion (iTeraPlay)
+    keyboard.append([
+        InlineKeyboardButton("🌐 Open in iTeraPlay", url=result.iteraplay_url)
+    ])
+
+    if result.success and (result.watch_url or result.download_url):
+        caption = (
+            "🎬 TeraBox Media Found!\n\n"
+            f"📁 Title: {result.title}\n"
+            f"📦 Size: {result.size_formatted}\n\n"
+            "Choose an option below to stream or download ad-free:"
+        )
+    else:
+        caption = (
+            "🎬 TeraBox Link Detected\n\n"
+            f"📁 Title: {result.title}\n"
+            f"🔗 Link: {share_url}\n\n"
+            "💡 TeraBox is currently requesting verification for direct anonymous downloads. "
+            "You can watch and download ad-free directly on iTeraPlay below:"
+        )
+
+    await status_msg.edit_text(
+        caption,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True,
+    )
+
+
+async def terabox_help_command(update, context):
+    if not is_admin(update, context):
+        await deny(update)
+        return
+    text = (
+        "🎬 TeraBox Instant Watch & Download\n\n"
+        "Send any TeraBox link directly to the bot to stream or download without ads!\n\n"
+        "⚙️ Optional Setup for Direct In-Chat Links:\n"
+        "• TeraBoxDL API: Add TERABOX_API_KEY=... in .env\n"
+        "• Custom Gateway: Add TERABOX_API_URL=... in .env\n"
+        "• Personal Cookie: Add TERABOX_COOKIE=... in .env\n\n"
+        "Without an API key or cookie, the bot still provides ad-free streaming via iTeraPlay!"
+    )
+    await update.message.reply_text(text)
+
+
+# --------------------------------------------------
 # Text input
 # --------------------------------------------------
 
@@ -1031,12 +1097,22 @@ async def receive_text(update, context):
     if not is_admin(update, context):
         return
 
-    awaiting = context.user_data.get("awaiting")
+    raw_text = (update.message.text or "").strip()
+    if not raw_text:
+        return
 
+    # 1. Automatic TeraBox link detection
+    tb_url = extract_terabox_url(raw_text)
+    if tb_url:
+        await handle_terabox_message(update, context, tb_url)
+        return
+
+    # 2. General menu input handling
+    awaiting = context.user_data.get("awaiting")
     if not awaiting:
         return
 
-    value = update.message.text.strip()
+    value = raw_text
     context.user_data.pop("awaiting", None)
 
     if not value:
@@ -1189,6 +1265,7 @@ async def post_init(application):
     await application.bot.set_my_commands([
         BotCommand("start", "Open Snapit"),
         BotCommand("menu", "Open the main menu"),
+        BotCommand("terabox", "TeraBox link info and setup"),
     ])
 
     ensure_schema()
@@ -1232,6 +1309,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", start))
+    application.add_handler(CommandHandler("terabox", terabox_help_command))
     application.add_handler(CallbackQueryHandler(callbacks))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text)
