@@ -957,7 +957,10 @@ async def receive_text(update, context):
         if not is_terabox_link(value):
             return
 
-        await update.message.reply_text("🔎 Snapit recognised your TeraBox link. Checking its public share page…")
+        await update.message.reply_text(
+            "🔎 Snapit recognised your TeraBox link. "
+            "Checking its public share page…"
+        )
         try:
             result = await __import__("asyncio").to_thread(inspect_public_share, value)
         except Exception:
@@ -976,14 +979,13 @@ async def receive_text(update, context):
             details.append(f"Info: {result.description}")
         details.append("")
         details.append(
-            "Public page inspection works. Direct playback-link resolution "
-            "is the next development step; this version does not fabricate "
-            "a watch or download URL."
+            "Snapit received the public page response. Direct playback-link "
+            "resolution is a separate next step; this version does not "
+            "fabricate a watch or download URL."
         )
         await update.message.reply_text("\\n".join(details))
         return
 
-    context.user_data.pop("awaiting", None)
     context.user_data.pop("awaiting", None)
 
     if not value:
