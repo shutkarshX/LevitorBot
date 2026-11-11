@@ -983,7 +983,7 @@ async def receive_text(update, context):
             "resolution is a separate next step; this version does not "
             "fabricate a watch or download URL."
         )
-        await update.message.reply_text("\\n".join(details))
+        await update.message.reply_text("\n".join(details))
         return
 
     context.user_data.pop("awaiting", None)
