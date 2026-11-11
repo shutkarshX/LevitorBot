@@ -2,6 +2,7 @@
 Telegram Bot Update Handlers and Callback Routing for Snapit (TG-Manager).
 """
 import asyncio
+import html
 import logging
 import sqlite3
 import tempfile
@@ -216,15 +217,17 @@ async def channel_page(update: Update, context: ContextTypes.DEFAULT_TYPE, chann
         return
 
     assigned = db.get_channel_categories(channel_id)
+    safe_title = html.escape(channel["title"])
+    safe_type = html.escape(channel["type"])
     text = (
-        f"{channel['title']}\n\n"
-        f"🏷 Type: {channel['type']}\n"
-        f"🔗 Username: @{channel['username']}"
+        f"<b>{safe_title}</b>\n\n"
+        f"🏷 <b>Type:</b> {safe_type}\n"
+        f"🔗 <b>Username:</b> @{html.escape(channel['username'])}"
         if channel["username"]
-        else f"{channel['title']}\n\nType: {channel['type']}\nNo public username"
+        else f"<b>{safe_title}</b>\n\n🏷 <b>Type:</b> {safe_type}\n🔗 <i>Private destination (no public username)</i>"
     )
-    text += "\n\nAssigned categories:\n"
-    text += "\n".join(f"• {row['name']}" for row in assigned) if assigned else "None"
+    text += "\n\n<b>Assigned Categories:</b>\n"
+    text += "\n".join(f"• {html.escape(row['name'])}" for row in assigned) if assigned else "<i>None</i>"
 
     keyboard = [
         [InlineKeyboardButton("↗️ Open in Telegram", callback_data=f"open:{channel_id}")],
@@ -682,9 +685,30 @@ async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             db.rename_category(category_id, value)
             await category_management_page(update, context, category_id)
+
+        elif awaiting == "cookie":
+            token = value.strip().strip('"').strip("'")
+            if token.startswith("ndus="):
+                token = token[5:].strip()
+            if len(token) < 10:
+                await update.message.reply_text("⚠️ The token seems too short. Make sure you copied the full ndus value.")
+                return
+            db.set_setting("terabox_cookie", token)
+            logger.info("TeraBox cookie updated via awaiting state.")
+            await update.message.reply_text(
+                "✅ <b>TeraBox Cookie saved successfully!</b>\n\n"
+                "🎬 Direct in-chat Telegram video playback is now active.\n"
+                "Send any TeraBox link to try it!",
+                parse_mode="HTML",
+            )
         return
 
     # 3. Informative response if user sends non-menu text
+    if raw_text == "/cancel":
+        context.user_data.clear()
+        await update.message.reply_text("Action cancelled.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Home", callback_data="home")]]))
+        return
+
     if raw_text.startswith("http://") or raw_text.startswith("https://"):
         await update.message.reply_text(
             "⚠️ This link was not recognized as a supported TeraBox link.\n"
@@ -694,14 +718,6 @@ async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "✨ Send me any TeraBox link to watch or download, or send /start to open your library."
         )
-        category_id = context.user_data.pop("rename_category_id", None)
-        if not category_id:
-            return
-        if len(value) > 60:
-            await update.message.reply_text("Keep the category name under 60 characters.")
-            return
-        db.rename_category(category_id, value)
-        await category_management_page(update, context, category_id)
 
 
 # --------------------------------------------------
@@ -725,6 +741,32 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "home":
         context.user_data.clear()
         await show(update, home_text(), home_keyboard())
+
+    elif data == "tb_info":
+        context.user_data.clear()
+        cookie = get_terabox_cookie()
+        cookie_status = "Active ✅" if cookie else "Not Set ⚠️"
+        text = (
+            "🎬 <b>TeraBox Ad-Free Player</b>\n\n"
+            "Send any TeraBox share link directly to this chat to play or download without ads!\n\n"
+            f"🔑 <b>Cookie Status:</b> {cookie_status}\n"
+            "⚡ <b>Playback Engine:</b> Telegram Native Stream (In-App Player)\n\n"
+            "💡 <i>Tip: Send /cookie &lt;token&gt; to update your token anytime.</i>"
+        )
+        keyboard = [
+            [InlineKeyboardButton("🔑 Update Cookie", callback_data="set_cookie_prompt")],
+            [InlineKeyboardButton("🏠 Back to Home", callback_data="home")],
+        ]
+        await show(update, text, keyboard)
+
+    elif data == "set_cookie_prompt":
+        context.user_data["awaiting"] = "cookie"
+        text = (
+            "🔑 <b>Update TeraBox Cookie</b>\n\n"
+            "Send your <code>ndus</code> cookie value directly in this chat, or send /cancel to return."
+        )
+        keyboard = [[InlineKeyboardButton("↩️ Cancel", callback_data="tb_info")]]
+        await show(update, text, keyboard)
 
     elif data == "cats":
         context.user_data.clear()

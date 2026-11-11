@@ -15,16 +15,16 @@ from database import (
 
 def home_text() -> str:
     return (
-        f"✨ {BRAND_NAME}\n"
-        "Your Telegram space, sorted with a little sparkle.\n\n"
-        f"📚 {get_total_channel_count()} destinations  ·  "
-        f"🗂 {len(get_categories())} categories  ·  "
-        f"🆕 {get_newly_added_count()} to review"
+        f"✨ <b>TG Manager</b>\n"
+        "Your channels, categories, and ad-free media hub.\n\n"
+        f"📚 <b>{get_total_channel_count()}</b> destinations  ·  "
+        f"🗂 <b>{len(get_categories())}</b> categories  ·  "
+        f"🆕 <b>{get_newly_added_count()}</b> to review"
     )
 
 
 def section_text(title: str, subtitle: Optional[str] = None) -> str:
-    return f"✦ {title} ✦" + (f"\n\n{subtitle}" if subtitle else "")
+    return f"✦ <b>{title}</b> ✦" + (f"\n\n{subtitle}" if subtitle else "")
 
 
 def home_keyboard() -> List[List[InlineKeyboardButton]]:
@@ -41,8 +41,11 @@ def home_keyboard() -> List[List[InlineKeyboardButton]]:
                 callback_data="uncat:0"
             ),
         ],
-        [InlineKeyboardButton("🔎 Search channels", callback_data="search")],
-        [InlineKeyboardButton("⚙️ Management", callback_data="management")],
+        [
+            InlineKeyboardButton("🔎 Search channels", callback_data="search"),
+            InlineKeyboardButton("🎬 TeraBox Player", callback_data="tb_info"),
+        ],
+        [InlineKeyboardButton("⚙️ Management & Sync", callback_data="management")],
     ]
 
 
@@ -78,6 +81,6 @@ async def deny(update: Update):
 async def show(update: Update, text: str, keyboard: Optional[List[List[InlineKeyboardButton]]] = None):
     markup = InlineKeyboardMarkup(keyboard) if keyboard else None
     if update.callback_query:
-        await update.callback_query.message.edit_text(text, reply_markup=markup)
+        await update.callback_query.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     else:
-        await update.effective_message.reply_text(text, reply_markup=markup)
+        await update.effective_message.reply_text(text, reply_markup=markup, parse_mode="HTML")
