@@ -1042,7 +1042,7 @@ async def callbacks(update, context):
     elif data.startswith("managecat:"):
         await category_management_page(update, context, int(data.split(":")[1]))
 
-    elif data.startswith("cat:")
+    elif data.startswith("cat:"):
         _, cid, page = data.split(":")
         context.user_data.clear()
         await category_page(update, context, int(cid), int(page))
