@@ -122,8 +122,8 @@ def _share_context(share_url: str, cookie: str | None = None) -> tuple[str, dict
             detail = (
                 "TeraBox rejected anonymous share lookup (dragdrop). "
                 "Retries cannot remove this server-side restriction. "
-                "Configure TERABOX_NDUS_COOKIE for the own-scraper method, "
-                "or configure a trusted external HTTPS resolver."
+                "Configure a TeraBox resolver API key (TERABOX_API_KEY) "
+                "or a trusted external HTTPS resolver. An NDUS cookie is optional."
             )
         else:
             detail = f"TeraBox share lookup failed: {message}"
@@ -229,29 +229,92 @@ def resolve_cookie(share_url: str, ndus_cookie: str) -> ResolvedLinks:
     return _links_from_context(base, context, "cookie", cookie_mode=True)
 
 
-def resolve_external(share_url: str, endpoint: str) -> ResolvedLinks:
-    """Call an explicitly configured JSON resolver endpoint.
+def _https_result_url(value: object) -> str | None:
+    """Accept only HTTPS links from a resolver response."""
+    if not value:
+        return None
+    candidate = str(value)
+    if urlparse(candidate).scheme != "https":
+        return None
+    return candidate
 
-    Expected response: {filename, size, watch_url, download_url}.
-    The endpoint is opt-in and must be trusted by the administrator.
+
+def resolve_terabox_api(share_url: str, api_key: str) -> ResolvedLinks:
+    """Use the TeraBoxDL hosted extraction API (no TeraBox login cookie).
+
+    The provider requires its own API key. Keep it in the server environment.
     """
-    if not endpoint.startswith("https://"):
-        raise ResolverError("External resolver must use HTTPS.")
-    payload = json.dumps({"url": share_url}).encode("utf-8")
-    request = Request(endpoint, data=payload, headers={
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "Snapit/1.0",
-    })
-    with urlopen(request, timeout=30) as response:
-        result = json.loads(response.read(1024 * 1024 + 1).decode("utf-8"))
-    watch = result.get("watch_url") or result.get("stream_url")
-    download = result.get("download_url") or result.get("direct_link")
+    if not api_key.strip():
+        raise ResolverError("TERABOX_API_KEY is not configured.")
+    payload = json.dumps({"url": share_url, "page": 1}).encode("utf-8")
+    request = Request(
+        "https://api-v2.teraboxdl.site/api/terabox/extract",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-API-KEY": api_key.strip(),
+            "User-Agent": "Snapit/1.0",
+        },
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            result = json.loads(response.read(1024 * 1024 + 1).decode("utf-8"))
+    except Exception as exc:
+        raise ResolverError(f"TeraBox extraction API request failed: {exc}") from exc
+
+    if not isinstance(result, dict) or result.get("errno") not in (0, "0", None):
+        message = result.get("errmsg") or result.get("error") or "provider rejected the request"
+        raise ResolverError(f"TeraBox extraction API error: {str(message)[:200]}")
+    entries = result.get("list") or []
+    if not entries or not isinstance(entries[0], dict):
+        raise ResolverError("TeraBox extraction API returned no files.")
+    item = entries[0]
+    watch = _https_result_url(item.get("stream_url") or item.get("watch_url"))
+    download = _https_result_url(
+        item.get("dlink") or item.get("direct_link") or item.get("download_url")
+    )
     if not watch and not download:
-        raise ResolverError("External resolver returned no usable links.")
+        raise ResolverError("TeraBox extraction API returned no usable HTTPS links.")
     return ResolvedLinks(
-        str(result.get("filename") or "TeraBox file"),
-        int(result.get("size") or 0), watch, download, "external",
+        str(item.get("server_filename") or item.get("filename") or "TeraBox file"),
+        int(item.get("size") or item.get("size_bytes") or 0),
+        watch, download, "external",
+    )
+
+
+def resolve_external(share_url: str, endpoint: str | None = None) -> ResolvedLinks:
+    """Call a configured JSON resolver or the TeraBoxDL API provider.
+
+    Generic endpoints return filename/size/watch_url/download_url. If no
+    endpoint is set, TERABOX_API_KEY enables the documented TeraBoxDL API.
+    """
+    if endpoint:
+        if not endpoint.startswith("https://"):
+            raise ResolverError("External resolver must use HTTPS.")
+        payload = json.dumps({"url": share_url}).encode("utf-8")
+        request = Request(endpoint, data=payload, headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "Snapit/1.0",
+        })
+        with urlopen(request, timeout=30) as response:
+            result = json.loads(response.read(1024 * 1024 + 1).decode("utf-8"))
+        watch = _https_result_url(result.get("watch_url") or result.get("stream_url"))
+        download = _https_result_url(result.get("download_url") or result.get("direct_link"))
+        if not watch and not download:
+            raise ResolverError("External resolver returned no usable HTTPS links.")
+        return ResolvedLinks(
+            str(result.get("filename") or "TeraBox file"),
+            int(result.get("size") or 0), watch, download, "external",
+        )
+
+    api_key = os.getenv("TERABOX_API_KEY")
+    if api_key:
+        return resolve_terabox_api(share_url, api_key)
+    raise ResolverError(
+        "External resolver is not configured. Set TERABOX_API_KEY "
+        "(TeraBoxDL free API key) or TERABOX_EXTERNAL_RESOLVER_URL."
     )
 
 
