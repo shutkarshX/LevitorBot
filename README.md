@@ -36,9 +36,16 @@ A private Telegram space and destination manager bot. **Snapit** pairs a **Teleg
 ## 📂 Project Structure
 
 ```text
-├── tg_manager_bot.py          # Main bot application entry point
-├── login_session.py           # Local helper script to authenticate Telethon session
-├── requirements.txt           # Python dependencies (python-telegram-bot, Telethon, python-dotenv)
+├── main.py                    # Root entry point (universal hosting panel compatibility)
+├── tg_manager_bot.py          # Bot bootstrap & application runner
+├── config.py                  # Environment config and project constants
+├── database.py                # SQLite schema auto-setup, migrations, and queries
+├── telegram_client.py         # Telethon client session, sync, and link generator
+├── ui.py                      # Menus, keyboards, layouts, and admin access control
+├── handlers.py                # Command, callback, message, and backup handlers
+├── terabox.py                 # TeraBox link detection, extraction, and player bridge
+├── login_session.py           # Helper script to authenticate Telethon session locally
+├── requirements.txt           # Python dependencies
 ├── .env.example               # Example environment variable configuration
 ├── .gitignore                 # Ignores sessions, databases, and local caches
 ├── scripts/
