@@ -54,8 +54,8 @@ BRAND_NAME = "Snapit"
 
 def home_text():
     return (
-        f"✨ {BRAND_NAME}\\n"
-        "Your Telegram space, sorted with a little sparkle.\\n\\n"
+        f"✨ {BRAND_NAME}\n"
+        "Your Telegram space, sorted with a little sparkle.\n\n"
         f"📚 {get_total_channel_count()} destinations  ·  "
         f"🗂 {len(get_categories())} categories  ·  "
         f"🆕 {get_newly_added_count()} to review"
@@ -63,7 +63,7 @@ def home_text():
 
 
 def section_text(title, subtitle=None):
-    return f"✦ {title} ✦" + (f"\\n\\n{subtitle}" if subtitle else "")
+    return f"✦ {title} ✦" + (f"\n\n{subtitle}" if subtitle else "")
 
 
 # Main Telegram chat-list sync only. Archived dialogs (folder 1), DMs,
@@ -317,11 +317,11 @@ def is_admin(update, context):
 async def deny(update):
     if update.callback_query:
         await update.callback_query.answer(
-            "This bot is private.", show_alert=True
+            "🔒 Snapit is private.", show_alert=True
         )
     elif update.effective_message:
         await update.effective_message.reply_text(
-            "This bot is private."
+            "🔒 Snapit is private."
         )
 
 
@@ -442,8 +442,8 @@ async def system_category_page(update, context, kind, page):
 async def run_sync(update, context):
     query = update.callback_query
     await query.edit_message_text(
-        "Syncing your main Telegram chat list…\n\n"
-        "Personal DMs, bot chats, and archived conversations are excluded."
+        "🔄 Syncing your main chat list…\n\n"
+        "Your DMs, bot chats and archived chats stay untouched."
     )
     try:
         result = await sync_main_dialogs(context.application)
@@ -456,11 +456,11 @@ async def run_sync(update, context):
         return
 
     await query.message.reply_text(
-        "Sync completed.\n\n"
-        f"Main-list channels/groups checked: {result['seen']}\n"
-        f"New destinations: {result['added']}\n"
-        f"Existing destinations checked: {result['updated']}\n"
-        f"Still in Newly Added: {result['newly_added']}",
+        "✨ Sync complete!\n\n"
+        f"👀 Checked: {result['seen']}\n"
+        f"🆕 Newly found: {result['added']}\n"
+        f"🔁 Refreshed: {result['updated']}\n"
+        f"📥 Waiting for review: {result['newly_added']}",
         reply_markup=InlineKeyboardMarkup(home_keyboard())
     )
 
@@ -504,9 +504,9 @@ async def send_database_backup(update, context):
                     document=backup_file,
                     filename=filename,
                     caption=(
-                        "TG Manager database backup\\n"
-                        f"Created: {timestamp}\\n"
-                        f"Size: {size:,} bytes\\n"
+                        "TG Manager database backup\n"
+                        f"Created: {timestamp}\n"
+                        f"Size: {size:,} bytes\n"
                         "Integrity check: OK"
                     ),
                 )
@@ -533,7 +533,7 @@ async def category_page(update, context, category_id, page):
         ).fetchone()
 
     if not category:
-        await show(update, "Category not found.", [
+        await show(update, "That category couldn't be found.", [
             [InlineKeyboardButton("Categories", callback_data="cats")]
         ])
         return
@@ -573,20 +573,20 @@ async def category_page(update, context, category_id, page):
         keyboard.append(navigation)
 
     keyboard.extend([
-        [InlineKeyboardButton("Rename category", callback_data=f"rename:{category_id}")],
-        [InlineKeyboardButton("Delete category", callback_data=f"delete:{category_id}")],
-        [InlineKeyboardButton("Back to categories", callback_data="cats")],
+        [InlineKeyboardButton("✏️ Rename category", callback_data=f"rename:{category_id}")],
+        [InlineKeyboardButton("🗑 Delete category", callback_data=f"delete:{category_id}")],
+        [InlineKeyboardButton("⬅️ All categories", callback_data="cats")],
     ])
 
     text = (
-        f"{category['name']}\n"
+        f"🗂 {category['name']}\n"
         f"{total} assigned channel(s)\n\n"
     )
 
     if channels:
-        text += "Select a channel:"
+        text += "Choose a channel to open ↓"
     else:
-        text += "No channels assigned yet.\nSearch for a channel to assign it."
+        text += "Nothing on this shelf yet.\nUse search to add a channel."
 
     await show(update, text, keyboard)
 
@@ -599,15 +599,15 @@ async def channel_page(update, context, channel_id, category_id=0, page=0):
     channel = get_channel(channel_id)
 
     if not channel:
-        await show(update, "Channel not found.")
+        await show(update, "That channel couldn't be found.")
         return
 
     assigned = get_channel_categories(channel_id)
 
     text = (
         f"{channel['title']}\n\n"
-        f"Type: {channel['type']}\n"
-        f"Username: @{channel['username']}"
+        f"🏷 Type: {channel['type']}\n"
+        f"🔗 Username: @{channel['username']}"
         if channel["username"]
         else f"{channel['title']}\n\nType: {channel['type']}\nNo public username"
     )
@@ -620,12 +620,12 @@ async def channel_page(update, context, channel_id, category_id=0, page=0):
         text += "None"
 
     keyboard = [
-        [InlineKeyboardButton("Open in Telegram", callback_data=f"open:{channel_id}")]
+        [InlineKeyboardButton("↗️ Open in Telegram", callback_data=f"open:{channel_id}")]
     ]
 
     keyboard.append([
         InlineKeyboardButton(
-            "Manage category assignments",
+            "🗂 Manage categories",
             callback_data=f"assign:{channel_id}:{category_id}:{page}",
         )
     ])
@@ -633,13 +633,13 @@ async def channel_page(update, context, channel_id, category_id=0, page=0):
     if category_id:
         keyboard.append([
             InlineKeyboardButton(
-                "Back to channel list",
+                "⬅️ Back to list",
                 callback_data=f"cat:{category_id}:{page}",
             )
         ])
     else:
         keyboard.append([
-            InlineKeyboardButton("Back to search", callback_data="search")
+            InlineKeyboardButton("⬅️ Back to search", callback_data="search")
         ])
 
     keyboard.append([
@@ -654,7 +654,7 @@ async def open_channel(update, context, channel_id):
 
     if not channel:
         await update.callback_query.answer(
-            "Channel not found.", show_alert=True
+            "That channel couldn't be found.", show_alert=True
         )
         return
 
@@ -710,7 +710,7 @@ async def assignment_page(update, context, channel_id, origin, page):
     channel = get_channel(channel_id)
 
     if not channel:
-        await show(update, "Channel not found.")
+        await show(update, "That channel couldn't be found.")
         return
 
     assigned_ids = {
@@ -740,7 +740,7 @@ async def assignment_page(update, context, channel_id, origin, page):
     await show(
         update,
         f"Manage categories\n\n{channel['title']}\n\n"
-        "Tap a category to assign or unassign it.",
+        "Tap a shelf to add or remove it.",
         keyboard,
     )
 
@@ -783,7 +783,7 @@ async def begin_search(update, context):
 
     await show(
         update,
-        "Search channels\n\nSend a channel title or username.",
+        "🔎 Find a channel\n\nSend its name or @username and I'll look it up.",
         [[InlineKeyboardButton("🏠 Home", callback_data="home")]],
     )
 
@@ -801,14 +801,14 @@ async def show_search_results(update, context, term):
         ])
 
     keyboard.append([
-        InlineKeyboardButton("Search again", callback_data="search"),
+        InlineKeyboardButton("🔎 Search again", callback_data="search"),
         InlineKeyboardButton("🏠 Home", callback_data="home"),
     ])
 
     await show(
         update,
-        f"Search results for: {term}\n\n"
-        f"Found {len(results)} result(s).",
+        f"🔎 Results for “{term}”\n\n"
+        f"Found {len(results)} match(es).",
         keyboard,
     )
 
@@ -822,8 +822,8 @@ async def begin_new_category(update, context):
 
     await show(
         update,
-        "Send the name for your new category.",
-        [[InlineKeyboardButton("Cancel", callback_data="cats")]],
+        "➕ Name your new shelf\n\nSend a category name to create it.",
+        [[InlineKeyboardButton("↩️ Cancel", callback_data="cats")]],
     )
 
 
@@ -833,8 +833,8 @@ async def begin_rename(update, context, category_id):
 
     await show(
         update,
-        "Send the new category name.",
-        [[InlineKeyboardButton("Cancel", callback_data=f"cat:{category_id}:0")]],
+        "✏️ Rename this shelf\n\nSend its new name.",
+        [[InlineKeyboardButton("↩️ Cancel", callback_data=f"cat:{category_id}:0")]],
     )
 
 
@@ -846,14 +846,14 @@ async def confirm_delete(update, context, category_id):
         ).fetchone()
 
     if not row:
-        await show(update, "Category not found.")
+        await show(update, "That category couldn't be found.")
         return
 
     count = get_channel_count(category_id)
 
     keyboard = [
         [InlineKeyboardButton(
-            f"Confirm delete ({count} assignments)",
+            f"Yes, delete · {count} assignments",
             callback_data=f"delok:{category_id}",
         )],
         [InlineKeyboardButton(
@@ -865,9 +865,9 @@ async def confirm_delete(update, context, category_id):
     await show(
         update,
         f"Delete category: {row['name']}?\n\n"
-        f"Affected channel assignments: {count}\n\n"
-        "Only the category and its assignments will be deleted. "
-        "Channel records will remain untouched.",
+        f"⚠️ Affected channel assignments: {count}\n\n"
+        "Only this shelf and its assignments will be removed. "
+        "Your channel records will stay safe.",
         keyboard,
     )
 
@@ -899,7 +899,7 @@ async def receive_text(update, context):
     context.user_data.pop("awaiting", None)
 
     if not value:
-        await update.message.reply_text("Please send a non-empty value.")
+        await update.message.reply_text("Please send something first ✨")
         return
 
     if awaiting == "search":
@@ -908,7 +908,7 @@ async def receive_text(update, context):
     elif awaiting == "new_category":
         if len(value) > 60:
             await update.message.reply_text(
-                "Category name must be 60 characters or fewer."
+                "Keep the category name under 60 characters."
             )
             return
 
@@ -932,7 +932,7 @@ async def receive_text(update, context):
 
         if len(value) > 60:
             await update.message.reply_text(
-                "Category name must be 60 characters or fewer."
+                "Keep the category name under 60 characters."
             )
             return
 
