@@ -45,6 +45,21 @@ class TeraBoxResolverUnitTests(unittest.TestCase):
         self.assertEqual(context["data"]["list"][0]["server_filename"], "video.mp4")
         self.assertEqual(mocked.call_count, 4)
 
+    def test_dragdrop_failure_explains_required_configuration(self):
+        html = b'var token = "fn%28%22ABCDEF123%22%29";'
+        dragdrop = b'{"errno":460030,"errmsg":"dragdrop","request_id":"req-test"}'
+        with patch("terabox_resolvers._request",
+                   side_effect=[html, dragdrop] * 3), \
+             patch("terabox_resolvers.time.sleep"):
+            with self.assertRaisesRegex(
+                ResolverError, "TERABOX_NDUS_COOKIE"
+            ) as caught:
+                _share_context(
+                    "https://www.terabox.app/sharing/link?surl=Q8bWTGMxeJteJS__r8YTpA"
+                )
+        self.assertIn("anonymous share lookup", str(caught.exception))
+        self.assertIn("req-test", str(caught.exception))
+
     def test_download_link_extracts_fresh_dlink(self):
         class FakeResponse:
             def __enter__(self):
