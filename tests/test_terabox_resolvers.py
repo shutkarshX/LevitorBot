@@ -7,6 +7,7 @@ from terabox_resolvers import (
     _js_token,
     _surl,
     _download_link,
+    _share_context,
     resolve_with_fallback,
     resolver_settings_from_env,
 )
@@ -29,6 +30,20 @@ class TeraBoxResolverUnitTests(unittest.TestCase):
     def test_extracts_js_token(self):
         self.assertEqual(_js_token('var x = "fn%28%22ABCDEF123%22%29";'), "ABCDEF123")
 
+
+    def test_share_context_retries_dragdrop_with_fresh_token(self):
+        html = b'var token = "fn%28%22ABCDEF123%22%29";'
+        dragdrop = b'{"errno":460030,"errmsg":"dragdrop"}'
+        success = b'{"errno":0,"list":[{"server_filename":"video.mp4"}]}'
+        with patch("terabox_resolvers._request",
+                   side_effect=[html, dragdrop, html, success]) as mocked, \
+             patch("terabox_resolvers.time.sleep"):
+            base, context = _share_context(
+                "https://www.terabox.app/sharing/link?surl=Q8bWTGMxeJteJS__r8YTpA"
+            )
+        self.assertEqual(base, "https://dm.1024tera.com")
+        self.assertEqual(context["data"]["list"][0]["server_filename"], "video.mp4")
+        self.assertEqual(mocked.call_count, 4)
 
     def test_download_link_extracts_fresh_dlink(self):
         class FakeResponse:
