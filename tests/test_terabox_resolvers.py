@@ -6,6 +6,7 @@ from terabox_resolvers import (
     ResolvedLinks,
     _js_token,
     _surl,
+    _download_link,
     resolve_with_fallback,
     resolver_settings_from_env,
 )
@@ -27,6 +28,45 @@ class TeraBoxResolverUnitTests(unittest.TestCase):
 
     def test_extracts_js_token(self):
         self.assertEqual(_js_token('var x = "fn%28%22ABCDEF123%22%29";'), "ABCDEF123")
+
+
+    def test_download_link_extracts_fresh_dlink(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, _limit):
+                return b'{"errno":0,"list":[{"dlink":"https://download.example/file"}]}'
+
+        context = {
+            "data": {"shareid": 12, "uk": 34, "sign": "sig", "timestamp": 123},
+            "headers": {"Referer": "https://dm.1024tera.com/wap/share/filelist?surl=AbCdEf123"},
+        }
+        with patch("terabox_resolvers.urlopen", return_value=FakeResponse()) as mocked:
+            result = _download_link("https://dm.1024tera.com", context, {"fs_id": 56})
+        self.assertEqual(result, "https://download.example/file")
+        self.assertTrue(mocked.called)
+        request = mocked.call_args.args[0]
+        self.assertEqual(request.method, "POST")
+
+    def test_download_link_returns_none_when_api_rejects_share(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, _limit):
+                return b'{"errno":130,"list":[]}'
+
+        context = {
+            "data": {"shareid": 12, "uk": 34, "sign": "sig", "timestamp": 123},
+            "headers": {},
+        }
+        with patch("terabox_resolvers.urlopen", return_value=FakeResponse()):
+            self.assertIsNone(_download_link(
+                "https://dm.1024tera.com", context, {"fs_id": 56}
+            ))
 
     def test_fallback_uses_next_enabled_method(self):
         expected = ResolvedLinks("video.mp4", 123, "https://watch.example/v", None, "external")
