@@ -235,6 +235,22 @@ def _resolve_via_cookie(share_url: str, cookie: Optional[str] = None) -> Optiona
             thumbs = item.get("thumbs") or {}
             thumb_url = thumbs.get("url3") or thumbs.get("icon")
 
+            stream_url = None
+            if cookie and "fs_id" in item and data.get("shareid"):
+                stream_params = {
+                    "app_id": "250528",
+                    "channel": "dubox",
+                    "clienttype": "0",
+                    "web": "1",
+                    "type": "M3U8_AUTO_480",
+                    "fid": str(item["fs_id"]),
+                    "shareid": str(data.get("shareid")),
+                    "uk": str(data.get("uk")),
+                    "sign": str(data.get("sign")),
+                    "timestamp": str(data.get("timestamp")),
+                }
+                stream_url = f"{base}/share/streaming?{urlencode(stream_params)}"
+
             if (not dlink or dlink == "") and "fs_id" in item and cookie:
                 try:
                     dl_payload = urlencode({
@@ -249,23 +265,25 @@ def _resolve_via_cookie(share_url: str, cookie: Optional[str] = None) -> Optiona
                         f"{base}/share/download?app_id=250528&channel=dubox&clienttype=0&web=1",
                         headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
                         data=dl_payload,
-                        timeout=15,
+                        timeout=10,
                     ).decode("utf-8"))
                     if dl_data.get("errno") == 0 and dl_data.get("dlink"):
                         dlink = dl_data["dlink"]
                 except Exception as e:
                     logger.debug("Failed fetching direct dlink from %s: %s", base, e)
 
+            resolved_target = dlink or stream_url
+
             return TeraBoxResult(
                 url=share_url,
                 title=filename,
                 size=size,
                 size_formatted=format_bytes(size),
-                watch_url=dlink if dlink else None,
-                download_url=dlink if dlink else None,
+                watch_url=resolved_target,
+                download_url=resolved_target,
                 thumbnail_url=thumb_url,
-                success=True if dlink else False,
-                cookie_used=cookie if dlink else None,
+                success=True if resolved_target else False,
+                cookie_used=cookie if resolved_target else None,
             )
     return None
 
@@ -286,7 +304,7 @@ def download_terabox_file(
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/131.0.0.0 Safari/537.36"
         ),
-        "Referer": "https://www.terabox.com/",
+        "Referer": "https://dm.1024tera.com/",
         "Accept": "*/*",
     }
     if cookie:
@@ -295,6 +313,27 @@ def download_terabox_file(
             clean_cookie = f"ndus={clean_cookie}"
         headers["Cookie"] = clean_cookie
 
+    # Handle HLS streaming playlist
+    if "/share/streaming" in download_url or download_url.endswith(".m3u8"):
+        req = Request(download_url, headers=headers)
+        with urlopen(req, timeout=20) as resp:
+            m3u8_text = resp.read().decode("utf-8", errors="replace")
+
+        ts_urls = [line.strip() for line in m3u8_text.splitlines() if line.strip().startswith("http")]
+        if not ts_urls:
+            raise RuntimeError("No media stream segments found in playlist.")
+
+        total_segments = len(ts_urls)
+        with open(output_path, "wb") as out_f:
+            for idx, seg_url in enumerate(ts_urls):
+                seg_req = Request(seg_url, headers={"User-Agent": headers["User-Agent"]})
+                with urlopen(seg_req, timeout=30) as seg_resp:
+                    out_f.write(seg_resp.read())
+                if progress_callback:
+                    progress_callback(idx + 1, total_segments)
+        return True
+
+    # Handle direct file download URL
     req = Request(download_url, headers=headers)
     with urlopen(req, timeout=60) as resp, open(output_path, "wb") as f:
         total = int(resp.headers.get("content-length", 0))
@@ -308,6 +347,7 @@ def download_terabox_file(
             downloaded += len(chunk)
             if progress_callback:
                 progress_callback(downloaded, total)
+    return True
     return True
 
 
