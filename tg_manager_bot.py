@@ -450,7 +450,7 @@ async def run_sync(update, context):
     except Exception:
         logging.exception("Main chat-list sync failed.")
         await query.message.reply_text(
-            "Sync failed. Your existing records and category assignments "
+            "⚠️ Sync failed. Your existing records and category assignments "
             "were not intentionally removed. Check the bot log and try again."
         )
         return
@@ -504,19 +504,19 @@ async def send_database_backup(update, context):
                     document=backup_file,
                     filename=filename,
                     caption=(
-                        "TG Manager database backup\n"
+                        "✨ Snapit database backup\n"
                         f"Created: {timestamp}\n"
                         f"Size: {size:,} bytes\n"
                         "Integrity check: OK"
                     ),
                 )
 
-        logging.info("Database backup sent to administrator (%s bytes).", size)
+        logging.info("Snapit database backup sent to administrator (%s bytes).", size)
 
     except Exception:
         logging.exception("Could not create or send database backup.")
         await message.reply_text(
-            "Database backup failed. Your live database was not intentionally "
+            "💾 Snapit backup failed. Your live database was not intentionally "
             "modified. Check the hosting logs and try again."
         )
 
@@ -534,7 +534,7 @@ async def category_page(update, context, category_id, page):
 
     if not category:
         await show(update, "That category couldn't be found.", [
-            [InlineKeyboardButton("Categories", callback_data="cats")]
+            [InlineKeyboardButton("🗂 Categories", callback_data="cats")]
         ])
         return
 
@@ -697,7 +697,7 @@ async def open_channel(update, context, channel_id):
     await update.callback_query.message.reply_text(
         f"Open {channel['title']}:",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Open in Telegram", url=url)
+            InlineKeyboardButton("↗️ Open in Telegram", url=url)
         ]]),
     )
 
@@ -921,7 +921,7 @@ async def receive_text(update, context):
             await categories(update, context)
         except sqlite3.IntegrityError:
             await update.message.reply_text(
-                "Could not create that category. Check for duplicates."
+                "Couldn't create that shelf. Check whether its name already exists."
             )
 
     elif awaiting == "rename_category":
@@ -969,10 +969,7 @@ async def callbacks(update, context):
         context.user_data.clear()
         await show(
             update,
-            f"TG Manager\n\nYour Telegram channel library.\n\n"
-            f"{get_total_channel_count()} destinations · "
-            f"{len(get_categories())} categories · "
-            f"{get_newly_added_count()} newly added",
+            home_text(),
             home_keyboard()
         )
 
