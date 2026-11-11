@@ -6,6 +6,7 @@ from terabox import _MetadataParser, is_terabox_link
 class TeraBoxUrlValidationTests(unittest.TestCase):
     def test_accepts_supported_https_share_urls(self):
         self.assertTrue(is_terabox_link("https://terabox.com/s/abc123"))
+        self.assertTrue(is_terabox_link("https://www.terabox.app/sharing/link?surl=abc123"))
         self.assertTrue(is_terabox_link("https://www.1024terabox.com/sharing/link?surl=abc"))
 
     def test_rejects_http_and_untrusted_hosts(self):
