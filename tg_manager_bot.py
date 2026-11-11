@@ -4,6 +4,7 @@ Assembles Telegram Application, registers command and callback handlers, and run
 """
 import logging
 from telegram import BotCommand
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -63,9 +64,17 @@ async def post_shutdown(application: Application):
 
 
 def main():
+    request = HTTPXRequest(
+        connection_pool_size=16,
+        connect_timeout=60.0,
+        read_timeout=300.0,
+        write_timeout=300.0,
+        pool_timeout=60.0,
+    )
     application = (
         Application.builder()
         .token(BOT_TOKEN)
+        .request(request)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()

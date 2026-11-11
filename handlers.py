@@ -472,68 +472,118 @@ async def handle_terabox_message(update: Update, context: ContextTypes.DEFAULT_T
 
     # 1. Direct download & in-chat video streaming available
     if result.download_url:
+        temp_dir = Path("data") / "temp_media"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_name = "".join(c for c in result.title if c.isalnum() or c in "._- ")[:60].strip() or "video.mp4"
+        if not safe_name.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi")):
+            safe_name += ".mp4"
+
+        tmp_path = temp_dir / f"{int(time.time())}_{safe_name}"
+        thumb_path = None
+
         try:
             await status_msg.edit_text(f"📥 Downloading '{result.title}' ({result.size_formatted}) for in-chat playback…")
-
-            temp_dir = Path("data") / "temp_media"
-            temp_dir.mkdir(parents=True, exist_ok=True)
-
-            safe_name = "".join(c for c in result.title if c.isalnum() or c in "._- ")[:60].strip() or "video.mp4"
-            if not safe_name.lower().endswith((".mp4", ".mkv", ".webm", ".mov", ".avi")):
-                safe_name += ".mp4"
-
-            tmp_path = temp_dir / f"{int(time.time())}_{safe_name}"
 
             cookie = result.cookie_used or get_terabox_cookie()
             await asyncio.to_thread(download_terabox_file, result.download_url, tmp_path, cookie)
 
+            # Download preview thumbnail if available
+            if result.thumbnail_url:
+                try:
+                    thumb_candidate = temp_dir / f"thumb_{int(time.time())}.jpg"
+                    await asyncio.to_thread(download_terabox_file, result.thumbnail_url, thumb_candidate, cookie)
+                    if thumb_candidate.exists() and thumb_candidate.stat().st_size > 0:
+                        thumb_path = thumb_candidate
+                except Exception as t_err:
+                    logger.debug("Could not download video thumbnail: %s", t_err)
+
             file_size = tmp_path.stat().st_size if tmp_path.exists() else 0
             if file_size > 0:
-                # Up to 50MB: Standard Telegram Bot API
+                caption = (
+                    f"🎬 <b>{result.title}</b>\n\n"
+                    f"📦 <b>Size:</b> {result.size_formatted}\n"
+                    f"⚡ <b>Playback:</b> Telegram Native Stream"
+                )
+                video_buttons = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("🌐 Original Link", url=share_url),
+                        InlineKeyboardButton("▶️ Open in iTeraPlay", url=result.iteraplay_url),
+                    ]
+                ])
+
+                uploaded = False
+
+                # Attempt 1: Upload via Standard Bot API if size <= 50MB
                 if file_size <= 50 * 1024 * 1024:
                     await status_msg.edit_text(f"🚀 Uploading '{result.title}' directly to Telegram…")
-                    with open(tmp_path, "rb") as video_file:
-                        await update.message.reply_video(
-                            video=video_file,
-                            caption=f"🎬 <b>{result.title}</b>\n📦 Size: {result.size_formatted}",
-                            parse_mode="HTML",
-                            supports_streaming=True,
-                            filename=safe_name,
-                        )
-                # 50MB up to 2GB: Telethon MTProto User Client
-                else:
+                    try:
+                        with open(tmp_path, "rb") as video_file:
+                            thumb_file = open(thumb_path, "rb") if thumb_path and thumb_path.exists() else None
+                            try:
+                                await update.message.reply_video(
+                                    video=video_file,
+                                    thumbnail=thumb_file,
+                                    caption=caption,
+                                    parse_mode="HTML",
+                                    supports_streaming=True,
+                                    filename=safe_name,
+                                    reply_markup=video_buttons,
+                                    write_timeout=300,
+                                    read_timeout=300,
+                                )
+                                uploaded = True
+                            finally:
+                                if thumb_file:
+                                    thumb_file.close()
+                    except Exception as bot_err:
+                        logger.warning("Bot API video upload failed/timed out, attempting Telethon fallback: %s", bot_err)
+
+                # Attempt 2: Fallback or Large File (>50MB up to 2GB) via Telethon User Client
+                if not uploaded:
                     tg_client = context.bot_data.get("tg_client")
                     if tg_client:
-                        await status_msg.edit_text(f"🚀 Uploading large video ({result.size_formatted}) via Telethon…")
+                        await status_msg.edit_text(f"🚀 Uploading video ({result.size_formatted}) via Telethon…")
                         chat_id = update.effective_chat.id
                         await tg_client.send_file(
                             chat_id,
                             str(tmp_path),
-                            caption=f"🎬 **{result.title}**\n📦 Size: {result.size_formatted}",
+                            thumb=str(thumb_path) if thumb_path and thumb_path.exists() else None,
+                            caption=f"🎬 **{result.title}**\n\n📦 **Size:** {result.size_formatted}\n⚡ **Playback:** Telegram Native Stream",
                             supports_streaming=True,
                         )
-                    else:
-                        await update.message.reply_text(
-                            f"🎬 <b>{result.title}</b> ({result.size_formatted})\n\n"
-                            f"File is larger than 50MB and Telethon is unavailable.\n"
-                            f"Download directly: <a href='{result.download_url}'>Click here to download</a>",
-                            parse_mode="HTML",
-                        )
+                        uploaded = True
 
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
-
-                try:
-                    await status_msg.delete()
-                except Exception:
-                    pass
-                return
+                if uploaded:
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
+                    return
+                else:
+                    await status_msg.edit_text(
+                        f"🎬 <b>{result.title}</b> ({result.size_formatted})\n\n"
+                        f"Could not upload video directly to chat.\n"
+                        f"You can watch or download it ad-free below:",
+                        parse_mode="HTML",
+                        reply_markup=video_buttons,
+                    )
+                    return
 
         except Exception as e:
             logger.exception("Error while downloading/sending video: %s", e)
             await status_msg.edit_text(f"⚠️ Could not stream video directly ({e}). Providing direct web options below:")
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                if thumb_path and thumb_path.exists():
+                    thumb_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     # 2. If direct video couldn't be downloaded (e.g. need cookie / verification):
     keyboard = []
