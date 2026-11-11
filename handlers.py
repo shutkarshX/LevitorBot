@@ -22,6 +22,7 @@ from terabox import (
     resolve_terabox_link,
     download_terabox_file,
     get_terabox_cookie,
+    format_bytes,
     TeraBoxResult,
 )
 from ui import (
@@ -517,9 +518,9 @@ async def handle_terabox_message(update: Update, context: ContextTypes.DEFAULT_T
 
                 uploaded = False
 
-                # Attempt 1: Upload via Standard Bot API if size <= 50MB
+                # Attempt 1: Upload directly via Bot API with 60s timeout
                 if file_size <= 50 * 1024 * 1024:
-                    await status_msg.edit_text(f"🚀 Uploading '{result.title}' directly to Telegram…")
+                    await status_msg.edit_text(f"🚀 Delivering '{html.escape(result.title)}' ({format_bytes(file_size)}) to Telegram…")
                     try:
                         with open(tmp_path, "rb") as video_file:
                             thumb_file = open(thumb_path, "rb") if thumb_path and thumb_path.exists() else None
@@ -532,21 +533,37 @@ async def handle_terabox_message(update: Update, context: ContextTypes.DEFAULT_T
                                     supports_streaming=True,
                                     filename=safe_name,
                                     reply_markup=video_buttons,
-                                    write_timeout=300,
-                                    read_timeout=300,
+                                    write_timeout=60,
+                                    read_timeout=60,
                                 )
                                 uploaded = True
                             finally:
                                 if thumb_file:
                                     thumb_file.close()
                     except Exception as bot_err:
-                        logger.warning("Bot API video upload failed/timed out, attempting Telethon fallback: %s", bot_err)
+                        logger.warning("Primary Bot API upload attempt hit timeout/issue (%s), retrying once...", bot_err)
+                        try:
+                            with open(tmp_path, "rb") as video_file:
+                                await context.bot.send_video(
+                                    chat_id=update.effective_chat.id,
+                                    video=video_file,
+                                    caption=caption,
+                                    parse_mode="HTML",
+                                    supports_streaming=True,
+                                    filename=safe_name,
+                                    reply_markup=video_buttons,
+                                    write_timeout=60,
+                                    read_timeout=60,
+                                )
+                                uploaded = True
+                        except Exception as retry_err:
+                            logger.warning("Retry upload attempt also failed: %s", retry_err)
 
-                # Attempt 2: Fallback or Large File (>50MB up to 2GB) via Telethon User Client
-                if not uploaded:
+                # Attempt 2: If over 50MB (Bot API limit) or Bot API unreachable, deliver via Telethon
+                if not uploaded and file_size > 50 * 1024 * 1024:
                     tg_client = context.bot_data.get("tg_client")
                     if tg_client:
-                        await status_msg.edit_text(f"🚀 Uploading video ({result.size_formatted}) via Telethon…")
+                        await status_msg.edit_text(f"🚀 Delivering large media ({result.size_formatted}) via Telethon…")
                         chat_id = update.effective_chat.id
                         await tg_client.send_file(
                             chat_id,

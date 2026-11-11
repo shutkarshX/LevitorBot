@@ -65,11 +65,12 @@ async def post_shutdown(application: Application):
 
 def main():
     request = HTTPXRequest(
-        connection_pool_size=16,
-        connect_timeout=60.0,
-        read_timeout=300.0,
-        write_timeout=300.0,
-        pool_timeout=60.0,
+        connection_pool_size=32,
+        connect_timeout=30.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        media_write_timeout=120.0,
+        pool_timeout=30.0,
     )
     application = (
         Application.builder()
