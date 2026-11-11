@@ -1244,6 +1244,7 @@ async def post_init(application):
     await application.bot.set_my_commands([
         BotCommand("start", "Open Snapit"),
         BotCommand("menu", "Open the main menu"),
+        BotCommand("terabox", "Change TeraBox resolver method"),
     ])
 
     ensure_schema()
