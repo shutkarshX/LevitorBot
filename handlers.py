@@ -1,5 +1,5 @@
 """
-Telegram Bot Update Handlers and Callback Routing for Snapit (TG-Manager).
+Telegram Bot Update Handlers and Callback Routing for LevitorBot.
 """
 import asyncio
 import html
@@ -14,7 +14,7 @@ from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from config import DB_PATH, PAGE_SIZE
+from config import DB_PATH, PAGE_SIZE, BRAND_NAME
 import database as db
 from telegram_client import sync_main_dialogs, resolve_channel_link
 from terabox import (
@@ -428,10 +428,10 @@ async def send_database_backup(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_UTC")
-    filename = f"tg_manager_backup_{timestamp}.db"
+    filename = f"levitor_backup_{timestamp}.db"
 
     try:
-        with tempfile.TemporaryDirectory(prefix="tg_manager_backup_") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="levitor_backup_") as temp_dir:
             backup_path = Path(temp_dir) / filename
             with closing(sqlite3.connect(DB_PATH, timeout=30)) as source:
                 with closing(sqlite3.connect(backup_path, timeout=30)) as destination:
@@ -447,7 +447,7 @@ async def send_database_backup(update: Update, context: ContextTypes.DEFAULT_TYP
                     document=backup_file,
                     filename=filename,
                     caption=(
-                        "✨ Snapit database backup\n"
+                        f"✨ {BRAND_NAME} database backup\n"
                         f"Created: {timestamp}\n"
                         f"Size: {size:,} bytes\n"
                         "Integrity check: OK"
@@ -456,7 +456,7 @@ async def send_database_backup(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.info("Database backup sent to admin (%s bytes).", size)
     except Exception:
         logger.exception("Could not create or send database backup.")
-        await message.reply_text("💾 Snapit backup failed. Check the hosting logs and try again.")
+        await message.reply_text(f"💾 {BRAND_NAME} backup failed. Check the hosting logs and try again.")
 
 
 # --------------------------------------------------

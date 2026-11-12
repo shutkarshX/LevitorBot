@@ -1,5 +1,5 @@
 """
-TeraBox Link Detection and Resolution Engine for Snapit (TG-Manager).
+TeraBox Link Detection and Resolution Engine for LevitorBot.
 
 Supports ad-free watch and direct download links for TeraBox shares.
 """

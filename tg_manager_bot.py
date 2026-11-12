@@ -1,5 +1,5 @@
 """
-Snapit (TG-Manager) Bot Main Entry Point.
+LevitorBot Main Entry Point.
 Assembles Telegram Application, registers command and callback handlers, and runs polling.
 """
 import logging
@@ -13,7 +13,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import BOT_TOKEN, setup_logging
+from config import BOT_TOKEN, BRAND_NAME, setup_logging
 import database as db
 from telegram_client import create_telethon_client
 from handlers import (
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 async def post_init(application: Application):
     await application.bot.set_my_commands([
-        BotCommand("start", "Open Snapit"),
+        BotCommand("start", f"Open {BRAND_NAME}"),
         BotCommand("menu", "Open the main menu"),
         BotCommand("terabox", "TeraBox player info and status"),
         BotCommand("cookie", "Set or check TeraBox cookie"),
@@ -45,14 +45,14 @@ async def post_init(application: Application):
         await client.disconnect()
         raise RuntimeError(
             "Telethon account session is not authorized. "
-            "Run 'python login_session.py' locally first and upload 'tg_manager_readonly.session'."
+            "Run 'python login_session.py' locally first and upload session file."
         )
 
     me = await client.get_me()
     application.bot_data["tg_client"] = client
     application.bot_data["admin_id"] = me.id
 
-    logger.info("Snapit administrator identity loaded: %s (ID: %s)", me.first_name, me.id)
+    logger.info("%s administrator identity loaded: %s (ID: %s)", BRAND_NAME, me.first_name, me.id)
     logger.info("Bot startup initialization complete.")
 
 
@@ -89,7 +89,7 @@ def main():
     application.add_handler(CallbackQueryHandler(callbacks))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
-    logger.info("Starting Snapit bot polling.")
+    logger.info("Starting %s polling.", BRAND_NAME)
     application.run_polling()
 
 

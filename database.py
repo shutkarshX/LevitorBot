@@ -1,5 +1,5 @@
 """
-Database Operations and Schema Management for Snapit (TG-Manager).
+Database Operations and Schema Management for LevitorBot.
 """
 import sqlite3
 from contextlib import contextmanager

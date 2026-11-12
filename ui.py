@@ -1,5 +1,5 @@
 """
-UI Components, Keyboard Builders, and Message Formatting for Snapit (TG-Manager).
+UI Components, Keyboard Builders, and Message Formatting for LevitorBot.
 """
 from typing import Optional, List
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,7 +15,7 @@ from database import (
 
 def home_text() -> str:
     return (
-        f"✨ <b>TG Manager</b>\n"
+        f"✨ <b>{BRAND_NAME}</b>\n"
         "Your channels, categories, and ad-free media hub.\n\n"
         f"📚 <b>{get_total_channel_count()}</b> destinations  ·  "
         f"🗂 <b>{len(get_categories())}</b> categories  ·  "
@@ -73,9 +73,9 @@ def is_admin(update: Update, context) -> bool:
 
 async def deny(update: Update):
     if update.callback_query:
-        await update.callback_query.answer("🔒 Snapit is private.", show_alert=True)
+        await update.callback_query.answer(f"🔒 {BRAND_NAME} is private.", show_alert=True)
     elif update.effective_message:
-        await update.effective_message.reply_text("🔒 Snapit is private.")
+        await update.effective_message.reply_text(f"🔒 {BRAND_NAME} is private.")
 
 
 async def show(update: Update, text: str, keyboard: Optional[List[List[InlineKeyboardButton]]] = None):

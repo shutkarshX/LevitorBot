@@ -1,6 +1,6 @@
-# Snapit (TG-Manager)
+# LevitorBot
 
-A private Telegram space and destination manager bot. **Snapit** pairs a **Telegram Bot** interface with a **Telethon user client** to inspect, organize, search, categorize, and safely back up your Telegram channels and supergroups.
+A private Telegram space and destination manager bot. **LevitorBot** pairs a **Telegram Bot** interface with a **Telethon user client** to inspect, organize, search, categorize, and safely back up your Telegram channels and supergroups.
 
 ---
 
@@ -122,9 +122,9 @@ In your SillyDev server's **Startup** settings:
 ### Step 4: Start the Server
 Start the server in the panel console. You should see:
 ```text
-Snapit administrator identity loaded.
+LevitorBot administrator identity loaded.
 Bot startup initialization complete.
-Starting Snapit bot polling.
+Starting LevitorBot polling.
 ```
 
 ---

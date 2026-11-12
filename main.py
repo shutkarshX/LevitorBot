@@ -1,5 +1,5 @@
 """
-Main entry point for Snapit (TG-Manager).
+Main entry point for LevitorBot.
 Allows hosting panels (like SillyDev / Pterodactyl) with default startup commands to launch without reconfiguration.
 """
 from tg_manager_bot import main

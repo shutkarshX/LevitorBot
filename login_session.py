@@ -1,5 +1,5 @@
 """
-Helper script to authenticate and generate 'tg_manager_readonly.session'
+Helper script to authenticate and generate user session file.
 Run this locally on your PC before uploading the session to your hosting panel (e.g. SillyDev / Pterodactyl).
 """
 import asyncio
@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from telethon import TelegramClient
+
+from config import SESSION_PATH
 
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
@@ -17,12 +19,10 @@ API_HASH = os.getenv("TG_API_HASH")
 if not API_ID or not API_HASH:
     raise SystemExit("Error: Missing TG_API_ID or TG_API_HASH in .env file.")
 
-SESSION_PATH = str(BASE / "tg_manager_readonly")
-
 
 async def main():
     print("=" * 60)
-    print("      TG-MANAGER — TELETHON SESSION AUTHENTICATION")
+    print("      LEViTORBOT — TELETHON SESSION AUTHENTICATION")
     print("=" * 60)
     print(f"Target session: {SESSION_PATH}.session\n")
 
@@ -41,7 +41,7 @@ async def main():
     print(f"Telegram ID    : {me.id}")
     print(f"Session file   : {SESSION_PATH}.session")
     print("\n📋 Next step:")
-    print("Upload 'tg_manager_readonly.session' to your hosting panel root folder.")
+    print(f"Upload '{Path(SESSION_PATH).name}.session' to your hosting panel root folder.")
     print("=" * 60)
 
     await client.disconnect()

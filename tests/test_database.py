@@ -1,5 +1,5 @@
 """
-Unit tests for Snapit (TG-Manager) SQLite database operations.
+Unit tests for LevitorBot SQLite database operations.
 Uses an isolated temporary database to verify schema migrations and CRUD operations.
 """
 import tempfile
@@ -13,7 +13,7 @@ import database as db
 class TestDatabaseOperations(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "test_tg_manager.db"
+        self.db_path = Path(self.temp_dir.name) / "test_levitor.db"
         self.patcher = patch("database.DB_PATH", self.db_path)
         self.patcher.start()
         db.ensure_schema()
