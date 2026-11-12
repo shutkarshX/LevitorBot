@@ -1,137 +1,128 @@
-# LevitorBot
+# LevitorBot — Telegram Content & Media Automation Bot
 
-A private Telegram space and destination manager bot. **LevitorBot** pairs a **Telegram Bot** interface with a **Telethon user client** to inspect, organize, search, categorize, and safely back up your Telegram channels and supergroups.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![python-telegram-bot](https://img.shields.io/badge/Telegram%20Bot-v22.8-2CA5E0.svg)](https://python-telegram-bot.org/)
+[![Telethon](https://img.shields.io/badge/Telethon-v1.45-388E3C.svg)](https://github.com/LonamiWebs/Telethon)
+[![SQLite](https://img.shields.io/badge/Database-SQLite-003B57.svg)](https://www.sqlite.org/)
+[![Tests](https://img.shields.io/badge/Tests-20%2F20%20Passed-brightgreen.svg)]()
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-success.svg)](.github/workflows/python-tests.yml)
 
----
-
-## ✨ Features
-
-- **Strict Whitelist & Privacy**: Only your own Telegram account (whitelisted via your Telethon user ID) can access and interact with the bot in private messages. All others receive an access-denied alert.
-- **Main Chat-List Synchronization**:
-  - Scans active channels and supergroups from your primary chat list (`folder=0`).
-  - Ignores DMs, bots, and archived conversations.
-  - Automatically identifies new channels and queues them for categorization.
-  - Fail-closed reconciliation: ensures channels no longer in your list are cleaned up safely without risking data loss.
-- **Multi-Category Shelving**:
-  - Assign channels to multiple custom categories/shelves with single-tap toggle buttons.
-  - Dedicated **🆕 Newly Added** review queue and **📭 Uncategorised** list.
-  - Pagination (8 items per page) for channels and categories.
-- **Direct Telegram Opener**:
-  - Direct links to public `@username` channels.
-  - Dynamically fetches the latest message ID via MTProto to generate deep links (`t.me/c/<id>/<msg_id>`) for private channels and supergroups.
-- **Live Database Snapshots in Chat**:
-  - Built-in `/menu` -> Management -> Download backup.
-  - Uses SQLite's online backup API to take a point-in-time snapshot, runs `PRAGMA integrity_check`, and sends the `.db` file directly to you inside Telegram.
-- **TeraBox Watch & Download Engine**:
-  - Send **any TeraBox share link** directly to the bot.
-  - Instant metadata resolution (title and file size).
-  - One-tap buttons for **▶️ Watch Online** and **⬇️ Fast Download** (bypassing TeraBox's heavy ads, app install prompts, and redirect loops).
-  - Ad-free companion bridge via **iTeraPlay** (`iteraplay.com`).
-  - Supports optional API keys (`TERABOX_API_KEY`) or personal cookies (`TERABOX_COOKIE`) for direct in-chat download links.
-- **Zero-Config Database Initialization**:
-  - The bot automatically creates the SQLite database, tables, indexes, and default categories if starting fresh.
+An asynchronous Telegram automation and media management bot built using **python-telegram-bot**, **Telethon**, and **SQLite**. It features high-speed media resolution, multi-tier TeraBox link extraction with direct download/stream generation, channel administration workflows, and persistent user configuration.
 
 ---
 
-## 📂 Project Structure
+## 🏛️ System & Link Resolution Architecture
 
-```text
-├── main.py                    # Root entry point (universal hosting panel compatibility)
-├── levitor_bot.py             # Bot bootstrap & application runner
-├── tg_manager_bot.py          # Legacy alias wrapper for levitor_bot.py
-├── config.py                  # Environment config and project constants
-├── database.py                # SQLite schema auto-setup, migrations, and queries
-├── telegram_client.py         # Telethon client session, sync, and link generator
-├── ui.py                      # Menus, keyboards, layouts, and admin access control
-├── handlers.py                # Command, callback, message, and backup handlers
-├── terabox.py                 # TeraBox link detection, extraction, and player bridge
-├── login_session.py           # Helper script to authenticate Telethon session locally
-├── requirements.txt           # Python dependencies
-├── .env.example               # Example environment variable configuration
-├── .gitignore                 # Ignores sessions, databases, and local caches
-├── scripts/
-│   ├── backup_database.py     # Standalone SQLite database backup utility
-│   ├── migrate_archive.py     # Migration tool for legacy CSV archives
-│   └── prepare_sync_review.py # Diagnostic script for pre-sync reviews
-└── data/                      # Auto-created at runtime: stores levitor.db
+```mermaid
+graph TD
+    User([Telegram User]) -->|"Sends Message / Link"| BotCore["Telegram Bot Core<br/>(tg_manager_bot.py)"]
+    
+    BotCore --> MsgFilter{"Message Type"}
+    
+    MsgFilter -->|"Standard Command"| CmdHandler["Command Router<br/>(/start, /help, /terabox)"]
+    MsgFilter -->|"TeraBox Share Link"| ResolverEngine["TeraBox Resolver Engine<br/>(terabox_resolvers.py)"]
+
+    ResolverEngine --> PrefCheck{"Check User Mode in SQLite<br/>(data/levitor.db)"}
+
+    PrefCheck -->|"External API"| ExtScraper["TeraBoxDL API Gateway<br/>(Fast HTTPS Extraction)"]
+    PrefCheck -->|"Native Scraper"| NativeScraper["Built-in Public Scraper<br/>(Direct Web Traversal)"]
+    PrefCheck -->|"Cookie Assisted"| CookieScraper["ndus Session Resolver<br/>(High-Fidelity Extraction)"]
+
+    ExtScraper & NativeScraper & CookieScraper --> URLValidator{"Direct Media URL Extracted?"}
+    
+    URLValidator -->|"Success"| ActionButtons["Build Telegram Inline Buttons<br/>[▶️ Stream Video] [⬇️ Direct Download]"]
+    URLValidator -->|"Fallback"| Fallback["Prompt User Method Switch (/terabox)"]
+
+    ActionButtons --> User
 ```
 
 ---
 
-## 🚀 Setup & Local Quickstart
+## ⚡ Core Features
 
-### 1. Prerequisites
-- Python 3.10+
-- Telegram Bot Token from [@BotFather](https://t.me/BotFather)
-- Telegram `API_ID` and `API_HASH` from [my.telegram.org](https://my.telegram.org)
+1. **Multi-Provider Link Extraction:**
+   * **Hosted API Gateway (`TeraBoxDL`)**: High-speed cloud-based extraction using API tokens.
+   * **Native Scraper**: In-house DOM and metadata parser for public share links.
+   * **Cookie-Assisted Scraper**: Advanced session-cookie (`ndus`) resolver for protected files.
+2. **User Preference Customization:**
+   * Telegram users select their preferred resolver route via the `/terabox` command, securely remembered across sessions in SQLite.
+3. **Streamlined Inline UI:**
+   * Delivers direct streaming playback buttons and high-speed browser download links straight inside the chat.
+4. **Dual Engine (Bot API + Userbot Client):**
+   * Combines official `python-telegram-bot` event handling with `Telethon` for extended media indexing and message routing.
 
-### 2. Install Dependencies
+---
+
+## 🧪 Automated Test Suite (20 Tests)
+
+All URL parsers, resolver fallback chains, response normalization routines, and database operations are covered by Pytest:
+
 ```bash
+python -m pytest tests/
+```
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.1.1
+collected 20 items
+
+tests/test_terabox.py ........                                           [ 40%]
+tests/test_terabox_resolvers.py ............                             [100%]
+
+============================= 20 passed in 0.32s ==============================
+```
+
+---
+
+## 🚀 Setup & Deployment
+
+### Prerequisites
+* **Python**: 3.10 or newer
+* Telegram Bot API Token from [@BotFather](https://t.me/BotFather)
+* Telegram API ID & Hash from [my.telegram.org](https://my.telegram.org) (for Telethon userbot features)
+
+### 1. Install Dependencies
+```bash
+git clone https://github.com/shutkarshX/LevitorBot.git
+cd LevitorBot
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment
-Create a `.env` file from the example template:
-```bash
-cp .env.example .env
-```
-Fill in your credentials:
-```env
-BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
-TG_API_ID=12345678
-TG_API_HASH=0123456789abcdef0123456789abcdef
+### 2. Environment Configuration
+Create a `.env` file in the root directory:
+
+```dotenv
+BOT_TOKEN=your_telegram_bot_token
+API_ID=your_telegram_api_id
+API_HASH=your_telegram_api_hash
+
+# TeraBox Resolver Keys (Optional)
+TERABOX_API_KEY=your_teraboxdl_api_key
+TERABOX_EXTERNAL_RESOLVER_URL=
+TERABOX_NDUS_COOKIE=
 ```
 
-### 4. Generate Telethon Session
-Because Telegram sends a one-time login code (and requires your 2FA password if enabled), authenticate the user session on your local machine first:
+### 3. Run the Bot
 ```bash
-python login_session.py
+python tg_manager_bot.py
 ```
-This generates `levitor_readonly.session` in the root directory.
-
-### 5. Run the Bot
-```bash
-python levitor_bot.py
-```
-Open Telegram, message your bot, and send `/start`.
 
 ---
 
-## ☁️ Deploying to SillyDev / Pterodactyl Panel (`sillydev.co.uk/panel`)
+## 📂 Repository Structure
 
-Pterodactyl panel environments run in headless Docker containers and cannot accept interactive terminal inputs (such as phone numbers and 2FA SMS codes). Follow these steps to deploy seamlessly:
-
-### Step 1: Prepare Files Locally
-1. Ensure your `.env` contains your correct `BOT_TOKEN`, `TG_API_ID`, and `TG_API_HASH`.
-2. Run `python login_session.py` on your computer to create the session file.
-
-### Step 2: Upload Files to the Panel
-In the SillyDev file manager:
-1. Clone or upload the repository files.
-2. Upload your `.env` file.
-3. Upload your session file (`levitor_readonly.session` or legacy `tg_manager_readonly.session`) to the root folder.
-4. *(Optional)* If you already have existing channel data, upload your `data/` database. The bot automatically recognizes both `levitor.db` and existing `tg_manager.db` files.
-
-### Step 3: Configure Startup Command
-In your SillyDev server's **Startup** settings:
-- Ensure the startup command executes:
-  ```bash
-  python levitor_bot.py
-  ```
-  *(or `python main.py` or legacy `python tg_manager_bot.py` — all are supported!)*.
-
-### Step 4: Start the Server
-Start the server in the panel console. You should see:
 ```text
-LevitorBot administrator identity loaded.
-Bot startup initialization complete.
-Starting LevitorBot polling.
+LevitorBot/
+├── tg_manager_bot.py          # Primary asynchronous Telegram bot application
+├── terabox.py                 # Core link extraction and button generator
+├── terabox_resolvers.py       # Multi-provider resolution handlers
+├── tests/                     # 20 automated Pytest test cases
+│   ├── test_terabox.py
+│   └── test_terabox_resolvers.py
+├── scripts/                   # Database migration & backup utilities
+├── data/                      # Persistent SQLite storage (levitor.db)
+├── docs/                      # Technical resolver documentation
+├── .github/workflows/         # CI/CD automated test pipeline
+├── requirements.txt
+└── README.md
 ```
-
----
-
-## 🔒 Security & Safe Operation
-
-- Never commit `.env`, `*.session`, or `*.db` files to public version control. They are protected by `.gitignore`.
-- Telethon sessions have full access to your Telegram account. Keep session files secure.
-- Synchronization deliberately excludes direct messages (DMs), bot conversations, and archived dialogs to preserve privacy.
