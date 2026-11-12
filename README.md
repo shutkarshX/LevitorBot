@@ -37,7 +37,8 @@ A private Telegram space and destination manager bot. **LevitorBot** pairs a **T
 
 ```text
 ├── main.py                    # Root entry point (universal hosting panel compatibility)
-├── tg_manager_bot.py          # Bot bootstrap & application runner
+├── levitor_bot.py             # Bot bootstrap & application runner
+├── tg_manager_bot.py          # Legacy alias wrapper for levitor_bot.py
 ├── config.py                  # Environment config and project constants
 ├── database.py                # SQLite schema auto-setup, migrations, and queries
 ├── telegram_client.py         # Telethon client session, sync, and link generator
@@ -52,7 +53,7 @@ A private Telegram space and destination manager bot. **LevitorBot** pairs a **T
 │   ├── backup_database.py     # Standalone SQLite database backup utility
 │   ├── migrate_archive.py     # Migration tool for legacy CSV archives
 │   └── prepare_sync_review.py # Diagnostic script for pre-sync reviews
-└── data/                      # Auto-created at runtime: stores tg_manager.db
+└── data/                      # Auto-created at runtime: stores levitor.db
 ```
 
 ---
@@ -86,11 +87,11 @@ Because Telegram sends a one-time login code (and requires your 2FA password if 
 ```bash
 python login_session.py
 ```
-This generates `tg_manager_readonly.session` in the root directory.
+This generates `levitor_readonly.session` in the root directory.
 
 ### 5. Run the Bot
 ```bash
-python tg_manager_bot.py
+python levitor_bot.py
 ```
 Open Telegram, message your bot, and send `/start`.
 
@@ -102,22 +103,22 @@ Pterodactyl panel environments run in headless Docker containers and cannot acce
 
 ### Step 1: Prepare Files Locally
 1. Ensure your `.env` contains your correct `BOT_TOKEN`, `TG_API_ID`, and `TG_API_HASH`.
-2. Run `python login_session.py` on your computer to create `tg_manager_readonly.session`.
+2. Run `python login_session.py` on your computer to create the session file.
 
 ### Step 2: Upload Files to the Panel
 In the SillyDev file manager:
 1. Clone or upload the repository files.
 2. Upload your `.env` file.
-3. Upload `tg_manager_readonly.session` to the root folder.
-4. *(Optional)* If you already have existing channel data, upload your `data/tg_manager.db`. If you don't, the bot will automatically initialize a fresh database on first boot.
+3. Upload your session file (`levitor_readonly.session` or legacy `tg_manager_readonly.session`) to the root folder.
+4. *(Optional)* If you already have existing channel data, upload your `data/` database. The bot automatically recognizes both `levitor.db` and existing `tg_manager.db` files.
 
 ### Step 3: Configure Startup Command
 In your SillyDev server's **Startup** settings:
 - Ensure the startup command executes:
   ```bash
-  python tg_manager_bot.py
+  python levitor_bot.py
   ```
-  *(or `python3 tg_manager_bot.py` depending on the container egg configuration)*.
+  *(or `python main.py` or legacy `python tg_manager_bot.py` — all are supported!)*.
 
 ### Step 4: Start the Server
 Start the server in the panel console. You should see:
@@ -132,5 +133,5 @@ Starting LevitorBot polling.
 ## 🔒 Security & Safe Operation
 
 - Never commit `.env`, `*.session`, or `*.db` files to public version control. They are protected by `.gitignore`.
-- Telethon sessions have full access to your Telegram account. Keep `tg_manager_readonly.session` secure.
+- Telethon sessions have full access to your Telegram account. Keep session files secure.
 - Synchronization deliberately excludes direct messages (DMs), bot conversations, and archived dialogs to preserve privacy.

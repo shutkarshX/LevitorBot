@@ -5,12 +5,13 @@ root = Path(".")
 output = root / "data" / "implementation_review.txt"
 
 parts = []
-parts.append("TG MANAGER PRE-SYNC IMPLEMENTATION REVIEW\n")
+parts.append("LEVITORBOT PRE-SYNC IMPLEMENTATION REVIEW\n")
 
 parts.append("\n=== CURRENT BOT SOURCE ===\n")
-parts.append((root / "tg_manager_bot.py").read_text(encoding="utf-8"))
+parts.append((root / "levitor_bot.py").read_text(encoding="utf-8"))
 
-db = sqlite3.connect("data/tg_manager.db")
+db_file = "data/levitor.db" if Path("data/levitor.db").exists() else "data/tg_manager.db"
+db = sqlite3.connect(db_file)
 
 parts.append("\n\n=== DATABASE SCHEMA ===\n")
 for row in db.execute("""

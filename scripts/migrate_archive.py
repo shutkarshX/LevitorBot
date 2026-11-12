@@ -10,7 +10,7 @@ DATA_DIR = ROOT / "data"
 
 ARCHIVE = ROOT / "channel_archive.csv"
 INVENTORY = ROOT / "channel_inventory.csv"
-DB = DATA_DIR / "tg_manager.db"
+DB = (DATA_DIR / "levitor.db") if (DATA_DIR / "levitor.db").exists() else (DATA_DIR / "tg_manager.db")
 
 CATEGORIES = [
     "Direct Content",
