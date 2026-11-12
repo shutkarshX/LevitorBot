@@ -360,7 +360,6 @@ def download_terabox_file(
             if progress_callback:
                 progress_callback(downloaded, total)
     return True
-    return True
 
 
 def resolve_terabox_link(share_url: str) -> TeraBoxResult:
